@@ -9,7 +9,7 @@ import logging
 import sys
 
 import trio
-from trio_websocket import WebSocketServer, WebSocketConnectionClosed
+from trio_websocket import WebSocketServer, ConnectionClosed
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -30,7 +30,7 @@ async def handler(websocket):
         try:
             message = await websocket.get_message()
             await websocket.send_message(message[::-1])
-        except WebSocketConnectionClosed:
+        except ConnectionClosed:
             print('Connection closed')
             break
     print('Handler exiting')

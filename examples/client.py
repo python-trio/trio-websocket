@@ -6,7 +6,7 @@ import logging
 import sys
 
 import trio
-from trio_websocket import WebSocketClient, WebSocketConnectionClosed
+from trio_websocket import WebSocketClient, ConnectionClosed
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -55,7 +55,7 @@ async def main(host, port, resource):
             except (EOFError, KeyboardInterrupt):
                 print('\nClosing rudely!')
                 sys.exit(1)
-            except WebSocketConnectionClosed:
+            except ConnectionClosed:
                 print('Connection closed')
                 break
     print('Nursery closed')
