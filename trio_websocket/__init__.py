@@ -189,7 +189,11 @@ class WebSocketConnection:
             await self._set_closed(event.code, event.reason)
             # The server should initiate TCP teardown:
             if self.is_server:
-                await self._stream.send_eof()
+                try:
+                    await self._stream.send_eof()
+                except trio.BrokenStreamError:
+                    # This probably means the TCP connection is already dead.
+                    pass
         elif isinstance(event, wsevents.BytesReceived):
             logger.debug('conn#%d received binary frame', self._id)
             self._bytes_message += event.data
@@ -225,9 +229,12 @@ class WebSocketConnection:
                 if self._wsproto.closed:
                     # WebSocket is already closed, so this is an expected
                     # closure.
-                    if self.is_client:
-                        await self._stream.send_eof()
-                    await self._stream.aclose()
+                    try:
+                        if self.is_client:
+                            await self._stream.send_eof()
+                        await self._stream.aclose()
+                    except trio.BrokenStreamError:
+                        pass
                 else:
                     # This is an unexpected closure.
                     await self._set_closed(

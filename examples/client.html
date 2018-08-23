@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<!--
+This is a JavaScript client that can interact with server.py. Run the server
+as follows:
+
+    $ python server.py 127.0.0.1 8000
+
+Then load this page in a browser. This JavaScript client has features similar to
+client.py except limited by the DOM API. For example, the DOM API does not have
+a ping() method for WebSockets.
+-->
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Test</h1>
+    <div id='output' style='border: 1px solid grey; padding: 1em;'>
+        <h2>Output:</h2>
+    </div>
+    <div style='border: 1px solid grey; margin-top: 1em; padding: 1em;'>
+        <h2>Commands:</h2>
+        <pre>
+send &lt;MESSAGE&gt;   -> send message
+close [&lt;REASON&gt;] -> politely close connection with optional reason
+        </pre>
+        <p>
+            <input id="command" type='text' placeholder='command'
+            style="padding: 0.2em" disabled>
+        </p>
+    </div>
+<script type='text/javascript'>
+var ws;
+var url = 'ws://localhost:8000/server';
+addEventListener('load', function init() {
+    connect();
+});
+function connect() {
+    print('Connecting: ' + url);
+    ws = new WebSocket(url);
+    ws.onmessage = function(event) {
+        print('Received: ' + event.data);
+    }
+    ws.onopen = function(event) {
+        var input = document.getElementById("command");
+        input.addEventListener("keyup", handleKey);
+        input.disabled = false;
+    }
+    ws.onclose = function(event) {
+        document.getElementById("command").disabled = true;
+        print('Error: server closed the connection')
+    }
+    ws.onerror = function (event) {
+        print('Connection error: (see console)');
+        console.log(event);
+    };
+}
+function handleKey(event) {
+    if (event.key == "Enter") {
+        var input = document.getElementById("command");
+        var cmd = input.value;
+        input.value = '';
+        doCommand(cmd)
+    }
+}
+function doCommand(cmd) {
+    if (cmd.startsWith('send ')) {
+        ws.send(cmd.substring(5));
+    } else if (cmd.startsWith('close')) {
+        ws.close(1000, cmd.substring(6))
+    } else {
+        print('Error: invalid command');
+    }
+}
+function print(s) {
+    var pre = document.createElement('pre');
+    pre.appendChild(document.createTextNode(s));
+    document.getElementById('output').appendChild(pre);
+}
+</script>
+</body>
+</html>
