@@ -1,6 +1,7 @@
 import enum
 import itertools
 import logging
+import ssl
 
 import trio
 import wsproto.connection as wsconnection
@@ -69,19 +70,20 @@ class WebSocketConnection:
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto):
+    def __init__(self, stream, wsproto, cancel_scope=None):
         '''
         Constructor.
 
         :param SocketStream stream:
-        :param bool client: true if this is a client, false if it is a server
-        :param client: a Trio cancel scope
+        :param wsproto: a WSConnection instance
+        :param client: a Trio cancel scope (only used by the server)
         '''
         self._close_reason = None
         self._id = next(self.__class__.CONNECTION_ID)
         self._message_queue = trio.Queue(0)
         self._stream = stream
         self._wsproto = wsproto
+        self._cancel_scope = cancel_scope
         self._bytes_message = b''
         self._str_message = ''
 
@@ -110,13 +112,13 @@ class WebSocketConnection:
         Close the WebSocket connection.
 
         This sends a closing frame and suspends until the connection is closed.
-        Raises ``ConnectionClosed`` if the connection is already closed. After
-        calling this method, any futher operations on this WebSocket (such as
-        ``get_message()`` or ``send_message()``) will raise
+        After calling this method, any futher operations on this WebSocket (such
+        as ``get_message()`` or ``send_message()``) will raise
         ``ConnectionClosed``.
 
         :param int code:
         :param str reason:
+        :raises ConnectionClosed: if connection is already closed
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
@@ -132,6 +134,7 @@ class WebSocketConnection:
         the connection is already closed or closes while waiting for a message.
 
         :return: str or bytes
+        :raises ConnectionClosed: if connection is closed
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
@@ -150,6 +153,7 @@ class WebSocketConnection:
         connection is closed.
 
         :param payload: str or bytes payloads
+        :raises ConnectionClosed: if connection is closed
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
@@ -163,6 +167,7 @@ class WebSocketConnection:
         Raises ``ConnectionClosed`` if the connection is closed..
 
         :param message: str or bytes
+        :raises ConnectionClosed: if connection is closed
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
@@ -190,10 +195,11 @@ class WebSocketConnection:
             # The server should initiate TCP teardown:
             if self.is_server:
                 try:
-                    await self._stream.send_eof()
+                    await self._stream.aclose()
                 except trio.BrokenStreamError:
-                    # This probably means the TCP connection is already dead.
+                    # This means the TCP connection is already dead.
                     pass
+                self._cancel_scope.cancel()
         elif isinstance(event, wsevents.BytesReceived):
             logger.debug('conn#%d received binary frame', self._id)
             self._bytes_message += event.data
@@ -226,22 +232,19 @@ class WebSocketConnection:
             if len(data) == 0:
                 logger.debug('conn#%d received zero bytes (connection closed)',
                     self._id)
-                if self._wsproto.closed:
-                    # WebSocket is already closed, so this is an expected
-                    # closure.
-                    try:
-                        if self.is_client:
-                            await self._stream.send_eof()
-                        await self._stream.aclose()
-                    except trio.BrokenStreamError:
-                        pass
-                else:
-                    # This is an unexpected closure.
+                if not self._wsproto.closed:
                     await self._set_closed(
                         wsframeproto.CloseReason.ABNORMAL_CLOSURE,
                         'TCP connection dropped unexpectedly')
-                    await self._stream.aclose()
-                break
+                if self.is_client:
+                    # The server initiates teardown after a ConnectionClosed
+                    # event and cancels the reader task, so only the client
+                    # needs to close here.
+                    try:
+                        await self._stream.aclose()
+                    except trio.BrokenStreamError:
+                        pass
+                return
             else:
                 logger.debug('conn#%d received %d bytes', self._id, len(data))
                 self._wsproto.receive_bytes(data)
@@ -249,8 +252,6 @@ class WebSocketConnection:
             # Process new events.
             for event in self._wsproto.events():
                 await self._handle_event(event)
-
-        logger.debug('conn#%d reader task finished', self._id)
 
     async def _set_closed(self, code, reason):
         '''
@@ -296,7 +297,7 @@ class WebSocketServer:
     (in a new nursery),
     '''
 
-    def __init__(self, handler, ip, port):
+    def __init__(self, handler, ip, port, ssl_context):
         '''
         Constructor.
 
@@ -304,17 +305,25 @@ class WebSocketServer:
             connection
         :param str ip: the IP address to bind to
         :param int port: the port to bind to
+        :param use_ssl: an SSLContext or None
         '''
         self._handler = handler
         self._ip = ip or None
         self._port = port
+        self._ssl = ssl_context
 
     async def listen(self):
         ''' Listen for incoming connections. '''
         try:
-            logger.info('Listening on %s:%d', self._ip, self._port)
-            await trio.serve_tcp(self._handle_connection, self._port,
-                host=self._ip)
+            logger.info('Listening on http%s://%s:%d',
+                '' if self._ssl is None else 's', self._ip, self._port)
+            if self._ssl is None:
+                await trio.serve_tcp(self._handle_connection, self._port,
+                    host=self._ip)
+            else:
+                await trio.serve_ssl_over_tcp(self._handle_connection,
+                    self._port, ssl_context=self._ssl, https_compatible=True,
+                    host=self._ip)
         except KeyboardInterrupt:
             logger.info('Received SIGINT... shutting down')
 
@@ -322,7 +331,8 @@ class WebSocketServer:
         ''' Handle an incoming connection. '''
         async with trio.open_nursery() as nursery:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
-            connection = WebSocketConnection(stream, wsproto)
+            connection = WebSocketConnection(stream, wsproto,
+                nursery.cancel_scope)
             nursery.start_soon(connection._reader_task)
             nursery.start_soon(self._handler, connection)
 
@@ -330,23 +340,42 @@ class WebSocketServer:
 class WebSocketClient:
     ''' WebSocket client. '''
 
-    def __init__(self, host, port, resource):
+    def __init__(self, host, port, resource, use_ssl):
         '''
         Constructor.
 
         :param str host: the host to connect to
         :param int port: the port to connect to
         :param str resource: the resource (i.e. path without leading slash)
+        :param use_ssl: a bool or SSLContext
         '''
         self._host = host
         self._port = port
         self._resource = resource
+        if use_ssl == True:
+            self._ssl = ssl.create_default_context()
+        elif use_ssl == False:
+            self._ssl = None
+        elif isinstance(use_ssl, ssl.SSLContext):
+            self._ssl = use_ssl
+        else:
+            raise TypeError('`use_ssl` argument must be bool or ssl.SSLContext')
 
     async def connect(self, nursery):
         '''
         Connect to WebSocket server.
+
+        :param nursery: a Trio nursery to run background connection tasks in
+        :raises: OSError if connection attempt fails
         '''
-        stream = await trio.open_tcp_stream(self._host, self._port)
+        logger.info('Connecting to http%s://%s:%d/%s',
+            '' if self._ssl is None else 's', self._host, self._port,
+            self._resource)
+        if self._ssl is None:
+            stream = await trio.open_tcp_stream(self._host, self._port)
+        else:
+            stream = await trio.open_ssl_over_tcp_stream(self._host,
+                self._port, ssl_context=self._ssl, https_compatible=True)
         wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
             host=self._host, resource=self._resource)
         connection = WebSocketConnection(stream, wsproto)

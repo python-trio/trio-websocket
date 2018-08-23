@@ -1,8 +1,14 @@
 '''
 This interactive WebSocket client allows the user to send frames to a WebSocket
 server, including text message, ping, and close frames.
+
+To use SSL/TLS: install the `trustme` package from PyPI and run the
+`generate-cert.py` script in this directory.
 '''
+import argparse
 import logging
+import pathlib
+import ssl
 import sys
 
 import trio
@@ -11,6 +17,7 @@ from trio_websocket import WebSocketClient, ConnectionClosed
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger()
+here = pathlib.Path(__file__).parent
 
 
 def commands():
@@ -23,15 +30,37 @@ def commands():
     print()
 
 
-async def main(host, port, resource):
+def parse_args():
+    ''' Parse command line arguments. '''
+    parser = argparse.ArgumentParser(description='Example trio-websocket client')
+    parser.add_argument('--ssl', action='store_true', help='Use SSL')
+    parser.add_argument('host', help='Host to connect to')
+    parser.add_argument('port', type=int, help='Port to connect to')
+    parser.add_argument('resource', help='Path to access on server (without'
+        ' leading slash)')
+    return parser.parse_args()
+
+
+async def main(args):
     ''' Main entry point. '''
-    print('Connecting to websocket server {}:{}/{}…'.format(
-        host, port, resource))
-    print('Nursery open')
+    logging.info('Nursery opening')
     async with trio.open_nursery() as nursery:
-        client = WebSocketClient(host, port, resource)
-        connection = await client.connect(nursery)
-        print('Connected!')
+        logging.info('Connecting to WebSocket…')
+        ssl_context = ssl.create_default_context()
+        try:
+            ssl_context.load_verify_locations(here / 'fake.ca.pem')
+        except FileNotFoundError:
+            logging.error('Did not find file "fake.ca.pem". You need to run'
+                ' generate-cert.py')
+            return
+        client = WebSocketClient(args.host, args.port, args.resource,
+            use_ssl=ssl_context)
+        try:
+            connection = await client.connect(nursery)
+        except OSError as ose:
+            logging.error('Connection attempt failed: %s', ose)
+            return
+        logging.info('Connected!')
         while True:
             await trio.sleep(0.1) # allow time for connection logging
             try:
@@ -53,16 +82,13 @@ async def main(host, port, resource):
                 else:
                     commands()
             except (EOFError, KeyboardInterrupt):
-                print('\nClosing rudely!')
+                logging.error('\nClosing rudely!')
                 sys.exit(1)
             except ConnectionClosed:
-                print('Connection closed')
+                logging.info('Connection closed')
                 break
     print('Nursery closed')
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4:
-        print('Usage: {} <HOST> <PORT> <RESOURCE>'.format(sys.argv[0]))
-        sys.exit(1)
-    trio.run(main, sys.argv[1], int(sys.argv[2]), sys.argv[3])
+    trio.run(main, parse_args())
