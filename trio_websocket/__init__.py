@@ -37,11 +37,21 @@ class CloseReason:
         '''
         Constructor.
 
-        :param code: a wsproto ``CloseReason``
+        :param int code:
         :param str reason:
         '''
-        self._code = code.value
-        self._name = code.name
+        self._code = code
+        try:
+            self._name = wsframeproto.CloseReason(code).name
+        except ValueError:
+            if 1000 <= code <= 2999:
+                self._name = 'RFC_RESERVED'
+            elif 3000 <= code <= 3999:
+                self._name = 'IANA_RESERVED'
+            elif 4000 <= code <= 4999:
+                self._name = 'PRIVATE_RESERVED'
+            else:
+                self._name = 'INVALID_CODE'
         self._reason = reason
 
     @property
@@ -82,6 +92,7 @@ class WebSocketConnection:
         self._id = next(self.__class__.CONNECTION_ID)
         self._message_queue = trio.Queue(0)
         self._stream = stream
+        self._stream_lock = trio.StrictFIFOLock()
         self._wsproto = wsproto
         self._cancel_scope = cancel_scope
         self._bytes_message = b''
@@ -123,7 +134,7 @@ class WebSocketConnection:
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
         self._wsproto.close(code=code, reason=reason)
-        self._close_reason = CloseReason(wsframeproto.CloseReason(code), reason)
+        self._close_reason = CloseReason(code, reason)
         await self._write_pending()
 
     async def get_message(self):
@@ -171,6 +182,7 @@ class WebSocketConnection:
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
+        logger.debug('***** wsproto state: %r', self._wsproto._state)
         self._wsproto.send_data(message)
         await self._write_pending()
 
@@ -222,6 +234,7 @@ class WebSocketConnection:
             raise Exception('Unknown websocket event: {!r}'.format(event))
 
     async def _reader_task(self):
+        ''' A background task that reads network data and generates events. '''
         # Clients need to initate the negotiation:
         if self._wsproto.client:
             await self._write_pending()
@@ -265,7 +278,8 @@ class WebSocketConnection:
         :param code: a wsproto CloseReason
         :param str reason:
         '''
-        self._close_reason = CloseReason(code, reason)
+        if self._close_reason is None:
+            self._close_reason = CloseReason(code, reason)
 
         # If any tasks are suspended on get_message(), wake them up with a
         # ConnectionClosed exception.
@@ -282,8 +296,11 @@ class WebSocketConnection:
         ''' Write any pending protocol data to the network socket. '''
         data = self._wsproto.bytes_to_send()
         if len(data) > 0:
-            logger.debug('conn#%d sending %d bytes', self._id, len(data))
-            await self._stream.send_all(data)
+            # The reader task and one or more writers might try to send messages
+            # at the same time, so we need to synchronize access to this stream.
+            async with self._stream_lock:
+                logger.debug('conn#%d sending %d bytes', self._id, len(data))
+                await self._stream.send_all(data)
         else:
             logger.debug('conn#%d no pending data to send', self._id)
 
@@ -305,7 +322,7 @@ class WebSocketServer:
             connection
         :param str ip: the IP address to bind to
         :param int port: the port to bind to
-        :param use_ssl: an SSLContext or None
+        :param ssl_context: an SSLContext or None for plaintext
         '''
         self._handler = handler
         self._ip = ip or None
@@ -376,8 +393,12 @@ class WebSocketClient:
         else:
             stream = await trio.open_ssl_over_tcp_stream(self._host,
                 self._port, ssl_context=self._ssl, https_compatible=True)
+        if self._port in (80, 443):
+            host_header = self._host
+        else:
+            host_header = '{}:{}'.format(self._host, self._port)
         wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
-            host=self._host, resource=self._resource)
+            host=host_header, resource=self._resource)
         connection = WebSocketConnection(stream, wsproto)
         nursery.start_soon(connection._reader_task)
         return connection

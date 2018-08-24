@@ -1,0 +1,8 @@
+{
+   "options": {"failByDrop": false},
+   "outdir": "./reports/servers",
+   "servers": [{"agent": "wsproto", "url": "ws://172.17.0.1:9000", "options": {"version": 18}}],
+   "cases": ["3.*"],
+   "exclude-cases": [],
+   "exclude-agent-cases": {}
+}
