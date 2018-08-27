@@ -233,7 +233,9 @@ class WebSocketConnection:
         elif isinstance(event, wsevents.ConnectionEstablished):
             logger.debug('conn#%d websocket established', self._id)
         elif isinstance(event, wsevents.ConnectionClosed):
-            logger.debug('conn#%d websocket closed', self._id)
+            if self._close_reason is None:
+                self._close_reason = CloseReason(event.code, event.reason)
+            await self._close_message_queue()
             self._writer_running = False
             self._data_pending.set()
         elif isinstance(event, wsevents.BytesReceived):
@@ -262,7 +264,6 @@ class WebSocketConnection:
         ''' A background task that reads network data and generates events. '''
         while self._reader_running:
             # Get network data.
-            logger.debug('reader receive')
             try:
                 data = await self._stream.receive_some(RECEIVE_BYTES)
             except trio.ClosedResourceError:
@@ -283,9 +284,7 @@ class WebSocketConnection:
                 self._wsproto.receive_bytes(data)
 
             # Process new events.
-            logger.debug('handling events')
             for event in self._wsproto.events():
-                logger.debug('one event')
                 await self._handle_event(event)
         logger.debug('conn#%d reader task finished', self._id)
 
@@ -298,16 +297,13 @@ class WebSocketConnection:
         sent first.
         '''
         while self._writer_running:
-            logger.debug('waiting for data pending')
             await self._data_pending.wait()
-            logger.debug('writing data')
             data = self._wsproto.bytes_to_send()
             if len(data) > 0:
                 logger.debug('conn#%d sending %d bytes', self._id, len(data))
                 await self._stream.send_all(data)
             self._data_pending.clear()
             self._data_sent.set()
-            logger.debug('bottom of writer loop')
 
         # The server is responsible for initiating TCP shutdown.
         #TODO put client timeout here.

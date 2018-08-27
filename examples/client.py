@@ -8,6 +8,7 @@ To use SSL/TLS: install the `trustme` package from PyPI and run the
 import argparse
 import logging
 import pathlib
+import readline
 import ssl
 import sys
 
@@ -47,14 +48,18 @@ async def main(args):
     async with trio.open_nursery() as nursery:
         logging.info('Connecting to WebSocket…')
         ssl_context = ssl.create_default_context()
-        try:
-            ssl_context.load_verify_locations(here / 'fake.ca.pem')
-        except FileNotFoundError:
-            logging.error('Did not find file "fake.ca.pem". You need to run'
-                ' generate-cert.py')
-            return
-        client = WebSocketClient(args.host, args.port, args.resource,
-            use_ssl=ssl_context)
+        if args.ssl:
+            try:
+                ssl_context.load_verify_locations(here / 'fake.ca.pem')
+            except FileNotFoundError:
+                logging.error('Did not find file "fake.ca.pem". You need to run'
+                    ' generate-cert.py')
+                return
+            client = WebSocketClient(args.host, args.port, args.resource,
+                use_ssl=ssl_context)
+        else:
+            client = WebSocketClient(args.host, args.port, args.resource,
+                use_ssl=False)
         try:
             connection = await client.connect(nursery)
         except OSError as ose:
