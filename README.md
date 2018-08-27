@@ -5,22 +5,62 @@ This project implements WebSockets for Trio and is based on the Sans-I/O
 
 ## Installation
 
-This project cannot be installed from PyPI, yet.
+This project cannot be installed from PyPI yet.
 
-```
-git clone https://github.com/mehaase/wsproto.git
-cd wsproto && pip install . && cd ..
-git clone https://github.com/mehaase/trio-websocket.git
-cd trio-websocket && pip install . && cd ..
-```
+    git clone https://github.com/mehaase/wsproto.git
+    cd wsproto && pip install . && cd ..
+    git clone https://github.com/mehaase/trio-websocket.git
+    cd trio-websocket && pip install . && cd ..
 
 ## Sample client
 
-...
+A WebSocket client requires a host, port, and resource (a.k.a. path). This
+example client sends a text message and then disconnects.
+
+    import trio
+    from trio_websocket import WebSocketServer, ConnectionClosed
+
+
+    async def main():
+        async with trio.open_nursery() as nursery:
+            client = WebSocketClient(args.host, args.port, args.resource,
+                use_ssl=False)
+            try:
+                connection = await client.connect(nursery)
+            except OSError as ose:
+                logging.error('Connection attempt failed: %s', ose)
+                return
+            await connection.send_message('hello world!')
+            await connection.close()
+
+    trio.run(main)
+
+A more detailed example is in `examples/client.py`.
 
 ## Sample server
 
-...
+A WebSocket server requires a bind address, a port, and a coroutine to handle
+incoming connections. This example demonstrates an "echo server" that replies
+to each incoming message with an identical outgoing message.
+
+    import trio
+    from trio_websocket import WebSocketServer, ConnectionClosed
+
+    async def main():
+        server = WebSocketServer(echo_server, '127.0.0.1', 8000, ssl_context=None)
+        await server.listen()
+
+    async def echo_server(websocket):
+        while True:
+            try:
+                message = await websocket.get_message()
+                await websocket.send_message(message)
+            except ConnectionClosed:
+                break
+
+    trio.run(main)
+
+A longer example is in `examples/server.py`.
 
 ## Integration Testing with Autobahn
 
