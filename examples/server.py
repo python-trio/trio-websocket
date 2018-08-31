@@ -63,4 +63,7 @@ async def handler(websocket):
 
 
 if __name__ == '__main__':
-    trio.run(main, parse_args())
+    try:
+        trio.run(main, parse_args())
+    except KeyboardInterrupt:
+        print()
