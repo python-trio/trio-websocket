@@ -12,7 +12,7 @@ setup(
     description='WebSocket library for Trio',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://github.com/mehaase/trio-websocket',
+    url='https://github.com/HyperionGray/trio-websocket',
     author='Mark E. Haase',
     author_email='mehaase@gmail.com',
     classifiers=[
