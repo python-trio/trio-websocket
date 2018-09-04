@@ -2,6 +2,7 @@ import enum
 import itertools
 import logging
 import ssl
+from functools import partial
 
 import trio
 import wsproto.connection as wsconnection
@@ -336,20 +337,33 @@ class WebSocketServer:
         self._port = port
         self._ssl = ssl_context
 
-    async def listen(self):
+    @property
+    def port(self):
+        """Returns the requested or kernel-assigned port number.
+
+        In the case of kernel-assigned port (requested with port=0 in the
+        constructor), the assigned port will be reflected after calling
+        starting the `listen` task.  (Technically, once listen reaches the
+        "started" state.)
+        """
+        return self._port
+
+    async def listen(self, *, task_status=trio.TASK_STATUS_IGNORED):
         ''' Listen for incoming connections. '''
-        try:
+        if self._ssl is None:
+            serve = partial(trio.serve_tcp, self._handle_connection,
+                self._port, host=self._ip)
+        else:
+            serve = partial(trio.serve_ssl_over_tcp, self._handle_connection,
+                self._port, ssl_context=self._ssl, https_compatible=True,
+                host=self._ip)
+        async with trio.open_nursery() as nursery:
+            listener = (await nursery.start(serve))[0]
+            self._port = listener.socket.getsockname()[1]
             logger.info('Listening on http%s://%s:%d',
                 '' if self._ssl is None else 's', self._ip, self._port)
-            if self._ssl is None:
-                await trio.serve_tcp(self._handle_connection, self._port,
-                    host=self._ip)
-            else:
-                await trio.serve_ssl_over_tcp(self._handle_connection,
-                    self._port, ssl_context=self._ssl, https_compatible=True,
-                    host=self._ip)
-        except KeyboardInterrupt:
-            logger.info('Received SIGINT... shutting down')
+            task_status.started()
+            await trio.sleep_forever()
 
     async def _handle_connection(self, stream):
         ''' Handle an incoming connection. '''
