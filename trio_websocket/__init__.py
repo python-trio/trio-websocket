@@ -258,6 +258,10 @@ class WebSocketConnection:
             await self._write_pending()
 
         while self._reader_running:
+            # Process events.
+            for event in self._wsproto.events():
+                await self._handle_event(event)
+
             # Get network data.
             try:
                 data = await self._stream.receive_some(RECEIVE_BYTES)
@@ -279,9 +283,6 @@ class WebSocketConnection:
                 logger.debug('conn#%d received %d bytes', self._id, len(data))
                 self._wsproto.receive_bytes(data)
 
-            # Process new events.
-            for event in self._wsproto.events():
-                await self._handle_event(event)
         logger.debug('conn#%d reader task finished', self._id)
 
     async def _write_pending(self):
