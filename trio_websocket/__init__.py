@@ -94,18 +94,11 @@ class WebSocketConnection:
         self._id = next(self.__class__.CONNECTION_ID)
         self._message_queue = trio.Queue(0)
         self._stream = stream
+        self._stream_lock = trio.StrictFIFOLock()
         self._wsproto = wsproto
         self._bytes_message = b''
         self._str_message = ''
-        self._data_pending = trio.Event()
-        self._data_sent = trio.Event()
-        self._pong_received = trio.Event()
         self._reader_running = True
-        self._writer_running = True
-        # The client is responsible for initiating the connection, so it has
-        # data ready to send immediately.
-        if self.is_client:
-            self._data_pending.set()
 
     @property
     def closed(self):
@@ -144,7 +137,7 @@ class WebSocketConnection:
             raise ConnectionClosed(self._close_reason)
         self._wsproto.close(code=code, reason=reason)
         self._close_reason = CloseReason(code, reason)
-        self._data_pending.set()
+        await self._write_pending()
         await self._closed.wait()
 
     async def get_message(self):
@@ -167,7 +160,11 @@ class WebSocketConnection:
 
     async def ping(self, payload):
         '''
-        Send WebSocket ping and wait for any pong.
+        Send WebSocket ping to peer.
+
+        Does not wait for pong reply. (Is this the right behavior? This may
+        change in the future.) Raises ``ConnectionClosed`` if the connection is
+        closed.
 
         :param payload: str or bytes payloads
         :raises ConnectionClosed: if connection is closed
@@ -175,9 +172,7 @@ class WebSocketConnection:
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
         self._wsproto.ping(payload)
-        self._data_pending.set()
-        await self._pong_received.wait()
-        self._pong_received.clear()
+        await self._write_pending()
 
     async def send_message(self, message):
         '''
@@ -191,9 +186,7 @@ class WebSocketConnection:
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
         self._wsproto.send_data(message)
-        self._data_pending.set()
-        await self._data_sent.wait()
-        self._data_sent.clear()
+        await self._write_pending()
 
     async def _close_message_queue(self):
         '''
@@ -212,8 +205,6 @@ class WebSocketConnection:
     async def _close_stream(self):
         ''' Close the TCP connection. '''
         self._reader_running = False
-        self._writer_running = False
-        self._data_pending.set()
         try:
             await self._stream.aclose()
         except trio.BrokenStreamError:
@@ -230,15 +221,15 @@ class WebSocketConnection:
         if isinstance(event, wsevents.ConnectionRequested):
             logger.debug('conn#%d accepting websocket', self._id)
             self._wsproto.accept(event)
-            self._data_pending.set()
+            await self._write_pending()
         elif isinstance(event, wsevents.ConnectionEstablished):
             logger.debug('conn#%d websocket established', self._id)
         elif isinstance(event, wsevents.ConnectionClosed):
             if self._close_reason is None:
                 self._close_reason = CloseReason(event.code, event.reason)
+            await self._write_pending()
             await self._close_message_queue()
-            self._writer_running = False
-            self._data_pending.set()
+            await self._close_stream()
         elif isinstance(event, wsevents.BytesReceived):
             logger.debug('conn#%d received binary frame', self._id)
             self._bytes_message += event.data
@@ -254,15 +245,18 @@ class WebSocketConnection:
         elif isinstance(event, wsevents.PingReceived):
             logger.debug('conn#%d ping', self._id)
             # wsproto queues a pong automatically, we just need to send it:
-            self._data_pending.set()
+            await self._write_pending()
         elif isinstance(event, wsevents.PongReceived):
             logger.debug('conn#%d pong %r', self._id, event.payload)
-            self._pong_received.set()
         else:
             raise Exception('Unknown websocket event: {!r}'.format(event))
 
     async def _reader_task(self):
         ''' A background task that reads network data and generates events. '''
+        if self.is_client:
+            # Clients need to initate the negotiation:
+            await self._write_pending()
+
         while self._reader_running:
             # Get network data.
             try:
@@ -278,6 +272,7 @@ class WebSocketConnection:
                     self._close_creason = CloseReason(
                         wsframeproto.CloseReason.ABNORMAL_CLOSURE,
                         'TCP connection aborted')
+                    await self._close_message_queue()
                 await self._close_stream()
                 break
             else:
@@ -289,28 +284,17 @@ class WebSocketConnection:
                 await self._handle_event(event)
         logger.debug('conn#%d reader task finished', self._id)
 
-    async def _writer_task(self):
-        '''
-        A background task that writes data to the network.
-
-        The writer task is a good place to initiate teardown of the underlying
-        stream, because we can ensure that all pending WebSocket data has been
-        sent first.
-        '''
-        while self._writer_running:
-            await self._data_pending.wait()
-            data = self._wsproto.bytes_to_send()
-            if len(data) > 0:
+    async def _write_pending(self):
+        ''' Write any pending protocol data to the network socket. '''
+        data = self._wsproto.bytes_to_send()
+        if len(data) > 0:
+            # The reader task and one or more writers might try to send messages
+            # at the same time, so we need to synchronize access to this stream.
+            async with self._stream_lock:
                 logger.debug('conn#%d sending %d bytes', self._id, len(data))
                 await self._stream.send_all(data)
-            self._data_pending.clear()
-            self._data_sent.set()
-
-        # The server is responsible for initiating TCP shutdown.
-        #TODO put client timeout here.
-        if self.is_server:
-            await self._close_stream()
-        logger.debug('conn#%d writer task finished', self._id)
+        else:
+            logger.debug('conn#%d no pending data to send', self._id)
 
 
 class WebSocketServer:
@@ -371,7 +355,6 @@ class WebSocketServer:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
             connection = WebSocketConnection(stream, wsproto)
             nursery.start_soon(connection._reader_task)
-            nursery.start_soon(connection._writer_task)
             nursery.start_soon(self._handler, connection)
 
 
@@ -422,5 +405,4 @@ class WebSocketClient:
             host=host_header, resource=self._resource)
         connection = WebSocketConnection(stream, wsproto)
         nursery.start_soon(connection._reader_task)
-        nursery.start_soon(connection._writer_task)
         return connection
