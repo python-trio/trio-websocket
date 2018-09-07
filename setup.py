@@ -1,14 +1,17 @@
 from setuptools import setup, find_packages
-from os import path
+from pathlib import Path
+from trio_websocket import __version__ as version
 
-here = path.abspath(path.dirname(__file__))
 
-with open(path.join(here, 'README.md'), encoding='utf-8') as f:
+here = Path(__file__).parent
+
+# Get description
+with open(here / 'README.md', encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
     name='trio-websocket',
-    version='0.0.1',
+    version=version,
     description='WebSocket library for Trio',
     long_description=long_description,
     long_description_content_type='text/markdown',

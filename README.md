@@ -1,14 +1,20 @@
 # Trio WebSockets
 
-This project implements WebSockets for Trio and is based on the Sans-I/O
-`wsproto` project.
+This project implements WebSockets [for
+Trio](https://trio.readthedocs.io/en/latest/) and is based on the Sans-I/O
+[wsproto project](https://wsproto.readthedocs.io/en/latest/).
 
 ## Installation
 
-This package has not been published to PyPI, yet, because it is still in a
-pre-release state. You can install it from its GitHub repo.
+To install from PyPI:
 
-    pip install git+https://github.com/HyperionGray/trio-websocket
+    pip install trio-websocket
+
+If you want to help develop `trio-websocket`, clone [the
+repository](https://github.com/hyperiongray/trio-websocket) and run this command
+from the repository root:
+
+    pip install --editable .
 
 ## Sample client
 
