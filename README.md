@@ -5,11 +5,10 @@ This project implements WebSockets for Trio and is based on the Sans-I/O
 
 ## Installation
 
-This project is not published on PyPI yet, because it has a dependency on a
-forked version of `wsproto`.
+This package has not been published to PyPI, yet, because it is still in a
+pre-release state. You can install it from its GitHub repo.
 
-     pip install git+https://github.com/mehaase/wsproto --upgrade
-     pip install git+https://github.com/HyperionGray/trio-websocket
+    pip install git+https://github.com/HyperionGray/trio-websocket
 
 ## Sample client
 
