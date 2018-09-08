@@ -10,7 +10,7 @@ import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
 
 
-__version__ = '0.0.1'
+__version__ = '0.2.0-dev'
 RECEIVE_BYTES = 4096
 logger = logging.getLogger('trio-websocket')
 
