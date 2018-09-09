@@ -346,7 +346,7 @@ class WebSocketServer:
         async with trio.open_nursery() as nursery:
             listener = (await nursery.start(serve))[0]
             self._port = listener.socket.getsockname()[1]
-            logger.info('Listening on http%s://%s:%d',
+            logger.debug('Listening on http%s://%s:%d',
                 '' if self._ssl is None else 's', self._ip, self._port)
             task_status.started()
             await trio.sleep_forever()
@@ -391,7 +391,7 @@ class WebSocketClient:
         :param nursery: a Trio nursery to run background connection tasks in
         :raises: OSError if connection attempt fails
         '''
-        logger.info('Connecting to http%s://%s:%d/%s',
+        logger.debug('Connecting to http%s://%s:%d/%s',
             '' if self._ssl is None else 's', self._host, self._port,
             self._resource)
         if self._ssl is None:
