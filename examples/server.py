@@ -51,7 +51,7 @@ async def main(args):
 
 async def handler(websocket):
     ''' Reverse incoming websocket messages and send them back. '''
-    logging.info('Handler starting')
+    logging.info('Handler starting (path=%s)' % websocket.path)
     while True:
         try:
             message = await websocket.get_message()

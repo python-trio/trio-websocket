@@ -8,7 +8,6 @@ To use SSL/TLS: install the `trustme` package from PyPI and run the
 import argparse
 import logging
 import pathlib
-import readline
 import ssl
 import sys
 
@@ -43,8 +42,7 @@ def parse_args():
 
 
 async def main(args):
-    ''' Main entry point. '''
-    logging.info('Nursery opening')
+    ''' Main entry point, returning False in the case of logged error. '''
     async with trio.open_nursery() as nursery:
         logging.info('Connecting to WebSocket…')
         ssl_context = ssl.create_default_context()
@@ -54,7 +52,7 @@ async def main(args):
             except FileNotFoundError:
                 logging.error('Did not find file "fake.ca.pem". You need to run'
                     ' generate-cert.py')
-                return
+                return False
             client = WebSocketClient(args.host, args.port, args.resource,
                 use_ssl=ssl_context)
         else:
@@ -64,7 +62,7 @@ async def main(args):
             connection = await client.connect(nursery)
         except OSError as ose:
             logging.error('Connection attempt failed: %s', ose)
-            return
+            return False
         logging.info('Connected!')
         while True:
             await trio.sleep(0.1) # allow time for connection logging
@@ -86,14 +84,14 @@ async def main(args):
                     break
                 else:
                     commands()
-            except (EOFError, KeyboardInterrupt):
-                logging.error('\nClosing rudely!')
-                sys.exit(1)
             except ConnectionClosed:
                 logging.info('Connection closed')
                 break
-    print('Nursery closed')
 
 
 if __name__ == '__main__':
-    trio.run(main, parse_args())
+    try:
+        if not trio.run(main, parse_args()):
+            sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        print()
