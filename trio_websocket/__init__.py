@@ -82,7 +82,7 @@ class WebSocketConnection:
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto):
+    def __init__(self, stream, wsproto, path=None):
         '''
         Constructor.
 
@@ -100,6 +100,10 @@ class WebSocketConnection:
         self._bytes_message = b''
         self._str_message = ''
         self._reader_running = True
+        self._path = path
+        # Set once the websocket handshake takes place (i.e.
+        # ConnectionRequested for server or ConnectedEstablished for client).
+        self._handshake_done = trio.Event()
 
     @property
     def closed(self):
@@ -120,6 +124,11 @@ class WebSocketConnection:
     def is_server(self):
         ''' Is this a server instance? '''
         return not self._wsproto.client
+
+    @property
+    def path(self):
+        """Returns the path from the HTTP handshake."""
+        return self._path
 
     async def close(self, code=1000, reason=None):
         '''
@@ -221,10 +230,13 @@ class WebSocketConnection:
         '''
         if isinstance(event, wsevents.ConnectionRequested):
             logger.debug('conn#%d accepting websocket', self._id)
+            self._path = event.h11request.target
             self._wsproto.accept(event)
             await self._write_pending()
+            self._handshake_done.set()
         elif isinstance(event, wsevents.ConnectionEstablished):
             logger.debug('conn#%d websocket established', self._id)
+            self._handshake_done.set()
         elif isinstance(event, wsevents.ConnectionClosed):
             if self._close_reason is None:
                 self._close_reason = CloseReason(event.code, event.reason)
@@ -255,7 +267,7 @@ class WebSocketConnection:
     async def _reader_task(self):
         ''' A background task that reads network data and generates events. '''
         if self.is_client:
-            # Clients need to initate the negotiation:
+            # Clients need to initiate the negotiation:
             await self._write_pending()
 
         while self._reader_running:
@@ -312,8 +324,10 @@ class WebSocketServer:
         '''
         Constructor.
 
-        :param coroutine handler: the coroutine to call to handle a new
-            connection
+        :param coroutine handler: the coroutine called with the corresponding
+            WebSocketConnection on each new connection.  The call will be made
+            once the HTTP handshake completes, which notably implies that the
+            connection's `path` property will be valid.
         :param str ip: the IP address to bind to
         :param int port: the port to bind to
         :param ssl_context: an SSLContext or None for plaintext
@@ -357,6 +371,7 @@ class WebSocketServer:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
             connection = WebSocketConnection(stream, wsproto)
             nursery.start_soon(connection._reader_task)
+            await connection._handshake_done.wait()
             nursery.start_soon(self._handler, connection)
 
 
@@ -388,7 +403,10 @@ class WebSocketClient:
         '''
         Connect to WebSocket server.
 
+        The connection will be returned once the HTTP handshake is successful.
+
         :param nursery: a Trio nursery to run background connection tasks in
+        :return: a WebSocketConnection
         :raises: OSError if connection attempt fails
         '''
         logger.debug('Connecting to http%s://%s:%d/%s',
@@ -405,6 +423,7 @@ class WebSocketClient:
             host_header = '{}:{}'.format(self._host, self._port)
         wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
             host=host_header, resource=self._resource)
-        connection = WebSocketConnection(stream, wsproto)
+        connection = WebSocketConnection(stream, wsproto, path=self._resource)
         nursery.start_soon(connection._reader_task)
+        await connection._handshake_done.wait()
         return connection
