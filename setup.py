@@ -28,9 +28,9 @@ setup(
     ],
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
-    install_requires=['trio', 'trustme', 'wsproto'],
+    install_requires=['trio', 'wsaccel', 'wsproto'],
     extras_require={
-        'wsaccel': ['wsaccel'],
+        'dev': ['pytest', 'pytest-trio', 'trustme'],
     },
     project_urls={
         'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',
