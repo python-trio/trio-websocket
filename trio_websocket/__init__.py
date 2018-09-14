@@ -5,6 +5,7 @@ import ssl
 from functools import partial
 
 import trio
+import trio.abc
 import wsproto.connection as wsconnection
 import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
@@ -77,7 +78,7 @@ class CloseReason:
             self.code, self.name, self.reason)
 
 
-class WebSocketConnection:
+class WebSocketConnection(trio.abc.AsyncResource):
     ''' A WebSocket connection. '''
 
     CONNECTION_ID = itertools.count()
@@ -90,7 +91,6 @@ class WebSocketConnection:
         :param wsproto: a WSConnection instance
         :param client: a Trio cancel scope (only used by the server)
         '''
-        self._closed = trio.Event()
         self._close_reason = None
         self._id = next(self.__class__.CONNECTION_ID)
         self._message_queue = trio.Queue(0)
@@ -101,9 +101,12 @@ class WebSocketConnection:
         self._str_message = ''
         self._reader_running = True
         self._path = path
-        # Set once the websocket handshake takes place (i.e.
-        # ConnectionRequested for server or ConnectedEstablished for client).
-        self._handshake_done = trio.Event()
+        # Set once the WebSocket open handshake takes place, i.e.
+        # ConnectionRequested for server or ConnectedEstablished for client.
+        self._open_handshake = trio.Event()
+        # Set once a WebSocket closed handshake takes place, i.e after a close
+        # frame has been sent and a close frame has been received.
+        self._close_handshake = trio.Event()
 
     @property
     def closed(self):
@@ -130,7 +133,7 @@ class WebSocketConnection:
         """Returns the path from the HTTP handshake."""
         return self._path
 
-    async def close(self, code=1000, reason=None):
+    async def aclose(self, code=1000, reason=None):
         '''
         Close the WebSocket connection.
 
@@ -144,11 +147,17 @@ class WebSocketConnection:
         :raises ConnectionClosed: if connection is already closed
         '''
         if self._close_reason:
-            raise ConnectionClosed(self._close_reason)
+            # Per AsyncResource interface, calling aclose() on a closed resource
+            # should succeed.
+            return
         self._wsproto.close(code=code, reason=reason)
-        self._close_reason = CloseReason(code, reason)
-        await self._write_pending()
-        await self._closed.wait()
+        try:
+            await self._write_pending()
+            await self._close_handshake.wait()
+        finally:
+            # If cancelled during WebSocket close, make sure that the underlying
+            # stream is closed.
+            await self._close_stream()
 
     async def get_message(self):
         '''
@@ -198,11 +207,21 @@ class WebSocketConnection:
         self._wsproto.send_data(message)
         await self._write_pending()
 
-    async def _close_message_queue(self):
+    async def _close_stream(self):
+        ''' Close the TCP connection. '''
+        self._reader_running = False
+        try:
+            await self._stream.aclose()
+        except trio.BrokenStreamError:
+            # This means the TCP connection is already dead.
+            pass
+
+    async def _close_web_socket(self, code, reason):
         '''
-        If any tasks are suspended on get_message(), wake them up with a
-        ConnectionClosed exception.
+        Mark the WebSocket as closed. If any tasks are suspended on
+        get_message(), wake them up with a ConnectionClosed exception.
         '''
+        self._close_reason = CloseReason(code, reason)
         exc = ConnectionClosed(self._close_reason)
         logger.debug('conn#%d websocket closed %r', self._id, exc)
         while True:
@@ -212,60 +231,91 @@ class WebSocketConnection:
             except trio.WouldBlock:
                 break
 
-    async def _close_stream(self):
-        ''' Close the TCP connection. '''
-        self._reader_running = False
-        try:
-            await self._stream.aclose()
-        except trio.BrokenStreamError:
-            # This means the TCP connection is already dead.
-            pass
-        self._closed.set()
-
-    async def _handle_event(self, event):
+    async def _handle_connection_requested_event(self, event):
         '''
-        Process one WebSocket event.
+        Handle a ConnectionRequested event.
 
-        :param event: a wsproto event
+        :param event:
         '''
-        if isinstance(event, wsevents.ConnectionRequested):
-            logger.debug('conn#%d accepting websocket', self._id)
-            self._path = event.h11request.target
-            self._wsproto.accept(event)
-            await self._write_pending()
-            self._handshake_done.set()
-        elif isinstance(event, wsevents.ConnectionEstablished):
-            logger.debug('conn#%d websocket established', self._id)
-            self._handshake_done.set()
-        elif isinstance(event, wsevents.ConnectionClosed):
-            if self._close_reason is None:
-                self._close_reason = CloseReason(event.code, event.reason)
-            await self._write_pending()
-            await self._close_message_queue()
-            await self._close_stream()
-        elif isinstance(event, wsevents.BytesReceived):
-            logger.debug('conn#%d received binary frame', self._id)
-            self._bytes_message += event.data
-            if event.message_finished:
-                await self._message_queue.put(self._bytes_message)
-                self._bytes_message = b''
-        elif isinstance(event, wsevents.TextReceived):
-            logger.debug('conn#%d received text frame', self._id)
-            self._str_message += event.data
-            if event.message_finished:
-                await self._message_queue.put(self._str_message)
-                self._str_message = ''
-        elif isinstance(event, wsevents.PingReceived):
-            logger.debug('conn#%d ping', self._id)
-            # wsproto queues a pong automatically, we just need to send it:
-            await self._write_pending()
-        elif isinstance(event, wsevents.PongReceived):
-            logger.debug('conn#%d pong %r', self._id, event.payload)
-        else:
-            raise Exception('Unknown websocket event: {!r}'.format(event))
+        self._path = event.h11request.target
+        self._wsproto.accept(event)
+        await self._write_pending()
+        self._open_handshake.set()
+
+    async def _handle_connection_established_event(self, event):
+        '''
+        Handle a ConnectionEstablished event.
+
+        :param event:
+        '''
+        self._open_handshake.set()
+
+    async def _handle_connection_closed_event(self, event):
+        '''
+        Handle a ConnectionClosed event.
+
+        :param event:
+        '''
+        await self._write_pending()
+        await self._close_web_socket(event.code, event.reason or None)
+        self._close_handshake.set()
+
+    async def _handle_bytes_received_event(self, event):
+        '''
+        Handle a BytesReceived event.
+
+        :param event:
+        '''
+        self._bytes_message += event.data
+        if event.message_finished:
+            await self._message_queue.put(self._bytes_message)
+            self._bytes_message = b''
+
+    async def _handle_text_received_event(self, event):
+        '''
+        Handle a TextReceived event.
+
+        :param event:
+        '''
+        self._str_message += event.data
+        if event.message_finished:
+            await self._message_queue.put(self._str_message)
+            self._str_message = ''
+
+    async def _handle_ping_received_event(self, event):
+        '''
+        Handle a PingReceived event.
+
+        Wsproto queues a pong frame automatically, so this handler just needs to
+        send it.
+
+        :param event:
+        '''
+        await self._write_pending()
+
+    async def _handle_pong_received_event(self, event):
+        '''
+        Handle a PongReceived event.
+
+        Currently we don't do anything special for a Pong frame, but this may
+        change in the future. This handler is here as a placeholder.
+
+        :param event:
+        '''
+        logger.debug('conn#%d pong %r', self._id, event.payload)
 
     async def _reader_task(self):
         ''' A background task that reads network data and generates events. '''
+        handlers = {
+            'ConnectionRequested': self._handle_connection_requested_event,
+            'ConnectionEstablished': self._handle_connection_established_event,
+            'ConnectionClosed': self._handle_connection_closed_event,
+            'BytesReceived': self._handle_bytes_received_event,
+            'TextReceived': self._handle_text_received_event,
+            'PingReceived': self._handle_ping_received_event,
+            'PongReceived': self._handle_pong_received_event,
+        }
+
         if self.is_client:
             # Clients need to initiate the negotiation:
             await self._write_pending()
@@ -273,7 +323,14 @@ class WebSocketConnection:
         while self._reader_running:
             # Process events.
             for event in self._wsproto.events():
-                await self._handle_event(event)
+                event_type = type(event).__name__
+                try:
+                    handler = handlers[event_type]
+                    logger.debug('conn#%d received event: %s', self._id,
+                        event_type)
+                    await handler(event)
+                except KeyError:
+                    logger.error('Received unknown event type: %s', event_type)
 
             # Get network data.
             try:
@@ -286,10 +343,9 @@ class WebSocketConnection:
                 # If TCP closed before WebSocket, then record it as an abnormal
                 # closure.
                 if not self._wsproto.closed:
-                    self._close_creason = CloseReason(
+                    await self._close_web_socket(
                         wsframeproto.CloseReason.ABNORMAL_CLOSURE,
                         'TCP connection aborted')
-                    await self._close_message_queue()
                 await self._close_stream()
                 break
             else:
@@ -371,7 +427,7 @@ class WebSocketServer:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
             connection = WebSocketConnection(stream, wsproto)
             nursery.start_soon(connection._reader_task)
-            await connection._handshake_done.wait()
+            await connection._open_handshake.wait()
             nursery.start_soon(self._handler, connection)
 
 
@@ -425,5 +481,5 @@ class WebSocketClient:
             host=host_header, resource=self._resource)
         connection = WebSocketConnection(stream, wsproto, path=self._resource)
         nursery.start_soon(connection._reader_task)
-        await connection._handshake_done.wait()
+        await connection._open_handshake.wait()
         return connection

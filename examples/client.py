@@ -64,29 +64,36 @@ async def main(args):
             logging.error('Connection attempt failed: %s', ose)
             return False
         logging.info('Connected!')
-        while True:
+        async with connection:
+            await handle_connection(connection)
+        logging.info('Connection closed')
+
+
+async def handle_connection(connection):
+    ''' Handle the connection. '''
+    while True:
+        try:
+            logger.debug('top of loop')
             await trio.sleep(0.1) # allow time for connection logging
-            try:
-                cmd = await trio.run_sync_in_worker_thread(input, 'cmd> ',
-                    cancellable=True)
-                if cmd.startswith('ping '):
-                    await connection.ping(cmd[5:].encode('utf8'))
-                elif cmd.startswith('send '):
-                    await connection.send_message(cmd[5:])
-                    message = await connection.get_message()
-                    print('response> {}'.format(message))
-                elif cmd.startswith('close'):
-                    try:
-                        reason = cmd[6:]
-                    except IndexError:
-                        reason = None
-                    await connection.close(reason=reason)
-                    break
-                else:
-                    commands()
-            except ConnectionClosed:
-                logging.info('Connection closed')
+            cmd = await trio.run_sync_in_worker_thread(input, 'cmd> ',
+                cancellable=True)
+            if cmd.startswith('ping '):
+                await connection.ping(cmd[5:].encode('utf8'))
+            elif cmd.startswith('send '):
+                await connection.send_message(cmd[5:])
+                message = await connection.get_message()
+                print('response> {}'.format(message))
+            elif cmd.startswith('close'):
+                try:
+                    reason = cmd[6:]
+                except IndexError:
+                    reason = None
+                await connection.aclose(code=1000, reason=reason)
                 break
+            else:
+                commands()
+        except ConnectionClosed:
+            break
 
 
 if __name__ == '__main__':
