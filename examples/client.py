@@ -44,7 +44,7 @@ def parse_args():
 async def main(args):
     ''' Main entry point, returning False in the case of logged error. '''
     async with trio.open_nursery() as nursery:
-        logging.info('Connecting to WebSocket…')
+        logging.debug('Connecting to WebSocket…')
         ssl_context = ssl.create_default_context()
         if args.ssl:
             try:
@@ -63,10 +63,10 @@ async def main(args):
         except OSError as ose:
             logging.error('Connection attempt failed: %s', ose)
             return False
-        logging.info('Connected!')
+        logging.debug('Connected!')
         async with connection:
             await handle_connection(connection)
-        logging.info('Connection closed')
+        logging.debug('Connection closed')
 
 
 async def handle_connection(connection):

@@ -11,6 +11,8 @@ RESOURCE = 'resource'
 
 @pytest.fixture
 async def echo_server(nursery):
+    ''' An echo server reads one message, sends back the same message,
+    then exits. '''
     async def handler(conn):
         try:
             msg = await conn.get_message()
@@ -22,31 +24,32 @@ async def echo_server(nursery):
     yield server
 
 
-def client_for_server(server):
-    ''' Create a client configured to connect to ``server``. '''
-    return WebSocketClient(HOST, server.port, RESOURCE, use_ssl=False)
-
-
-async def test_client_send_and_receive(echo_server, nursery):
-    client = client_for_server(echo_server)
+@pytest.fixture
+async def echo_conn(echo_server, nursery):
+    ''' Return a client connection instance that is connected to an echo
+    server. '''
+    client = WebSocketClient(HOST, echo_server.port, RESOURCE, use_ssl=False)
     async with await client.connect(nursery) as conn:
-        await conn.send_message('This is a test message.')
-        received_msg = await conn.get_message()
+        yield conn
+
+
+async def test_client_send_and_receive(echo_conn, nursery):
+    async with echo_conn:
+        await echo_conn.send_message('This is a test message.')
+        received_msg = await echo_conn.get_message()
         assert received_msg == 'This is a test message.'
 
 
-async def test_client_default_close(echo_server, nursery):
-    client = client_for_server(echo_server)
-    async with await client.connect(nursery) as conn:
-        assert conn.closed is None
-    assert conn.closed.code == 1000
-    assert conn.closed.reason is None
+async def test_client_default_close(echo_conn, nursery):
+    async with echo_conn:
+        assert echo_conn.closed is None
+    assert echo_conn.closed.code == 1000
+    assert echo_conn.closed.reason is None
 
 
-async def test_client_nondefault_close(echo_server, nursery):
-    client = client_for_server(echo_server)
-    async with await client.connect(nursery) as conn:
-        assert conn.closed is None
-        await conn.aclose(code=1001, reason='test reason')
-    assert conn.closed.code == 1001
-    assert conn.closed.reason == 'test reason'
+async def test_client_nondefault_close(echo_conn, nursery):
+    async with echo_conn:
+        assert echo_conn.closed is None
+        await echo_conn.aclose(code=1001, reason='test reason')
+    assert echo_conn.closed.code == 1001
+    assert echo_conn.closed.reason == 'test reason'

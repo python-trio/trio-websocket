@@ -330,7 +330,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
                         event_type)
                     await handler(event)
                 except KeyError:
-                    logger.error('Received unknown event type: %s', event_type)
+                    logger.warning('Received unknown event type: %s',
+                        event_type)
 
             # Get network data.
             try:
