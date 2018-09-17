@@ -27,13 +27,12 @@ resource as arguments.
 
 
     async def main():
-        async with trio.open_nursery() as nursery:
-            try:
-                async with open_websocket_url(nursery, 'ws://localhost/foo') as conn:
-                    await conn.send_message('hello world!')
-            except OSError as ose:
-                logging.error('Connection attempt failed: %s', ose)
-                return
+        try:
+            async with open_websocket_url('ws://localhost/foo') as conn:
+                await conn.send_message('hello world!')
+        except OSError as ose:
+            logging.error('Connection attempt failed: %s', ose)
+            return
 
     trio.run(main)
 
