@@ -1,5 +1,5 @@
 import pytest
-from trio_websocket import ConnectionClosed, WebSocketClient, WebSocketServer
+from trio_websocket import ConnectionClosed, open_websocket, WebSocketServer
 import trio
 
 
@@ -28,8 +28,8 @@ async def echo_server(nursery):
 async def echo_conn(echo_server, nursery):
     ''' Return a client connection instance that is connected to an echo
     server. '''
-    client = WebSocketClient(HOST, echo_server.port, RESOURCE, use_ssl=False)
-    async with await client.connect(nursery) as conn:
+    async with open_websocket(nursery, HOST, echo_server.port, RESOURCE,
+        use_ssl=False) as conn:
         yield conn
 
 
