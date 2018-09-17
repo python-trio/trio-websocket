@@ -10,6 +10,7 @@ import trio.abc
 import wsproto.connection as wsconnection
 import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
+from yarl import URL
 
 
 __version__ = '0.2.0-dev'
@@ -60,6 +61,31 @@ async def open_websocket(nursery, host, port, resource, use_ssl):
     await connection._open_handshake.wait()
     async with connection:
         await yield_(connection)
+
+
+@asynccontextmanager
+@async_generator
+async def open_websocket_url(nursery, url, ssl_context=None):
+    '''
+    Open a WebSocket client connection to a URL.
+
+    This function is an async context manager that automatically connects and
+    disconnects. It yields a `WebSocketConnection` instance.
+
+    :param str url: a WebSocket URL
+    :param ssl_context: optional SSLContext, only used for wss: URL scheme
+    '''
+    url = URL(url)
+    if url.scheme not in ('ws', 'wss'):
+        raise ValueError('WebSocket URL scheme must be "ws:" or "wss:"')
+    resource = url.path.lstrip('/')
+    if ssl_context is None:
+        use_ssl = url.scheme == 'wss'
+    else:
+        use_ssl = ssl_context
+    async with open_websocket(nursery, url.host, url.port, resource, use_ssl) \
+        as conn:
+        await yield_(conn)
 
 
 class ConnectionClosed(Exception):
