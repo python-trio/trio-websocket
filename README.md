@@ -14,32 +14,34 @@ If you want to help develop `trio-websocket`, clone [the
 repository](https://github.com/hyperiongray/trio-websocket) and run this command
 from the repository root:
 
-    pip install --editable .
+    pip install --editable .[dev]
 
 ## Sample client
 
-A WebSocket client requires a host, port, and resource (a.k.a. path). This
-example client sends a text message and then disconnects.
+The following example demonstrates opening a WebSocket by URL. The connection
+may also be opened with `open_websocket(…)`, which takes a host, port, and
+resource as arguments.
 
     import trio
-    from trio_websocket import WebSocketServer, ConnectionClosed
+    from trio_websocket import open_websocket_url
 
 
     async def main():
         async with trio.open_nursery() as nursery:
-            client = WebSocketClient(args.host, args.port, args.resource,
-                use_ssl=False)
             try:
-                connection = await client.connect(nursery)
+                async with open_websocket_url(nursery, 'ws://localhost/foo') as conn:
+                    await conn.send_message('hello world!')
             except OSError as ose:
                 logging.error('Connection attempt failed: %s', ose)
                 return
-            await connection.send_message('hello world!')
-            await connection.close()
 
     trio.run(main)
 
-A more detailed example is in `examples/client.py`.
+A more detailed example is in `examples/client.py`. **Note:** if you want to run
+this example client with SSL, you'll need to install the `trustme` module from
+PyPI (installed automtically if you used the `[dev]` extras when installing
+`trio-websocket`) and then generate a self-signed certificate by running
+`example/generate-cert.py`.
 
 ## Sample server
 
@@ -64,7 +66,8 @@ to each incoming message with an identical outgoing message.
 
     trio.run(main)
 
-A longer example is in `examples/server.py`.
+A longer example is in `examples/server.py`. **See the note above about using
+SSL with the example client.**
 
 ## Integration Testing with Autobahn
 
