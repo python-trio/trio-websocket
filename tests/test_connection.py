@@ -7,7 +7,7 @@ import trio
 
 
 HOST = 'localhost'
-RESOURCE = 'resource'
+RESOURCE = '/resource'
 
 
 @pytest.fixture
@@ -35,13 +35,13 @@ async def echo_conn(echo_server):
 
 
 async def test_client_open_url(echo_server):
-    url = 'ws://{}:{}/{}'.format(HOST, echo_server.port, RESOURCE)
+    url = 'ws://{}:{}{}?foo=bar'.format(HOST, echo_server.port, RESOURCE)
     async with open_websocket_url(url) as conn:
-        assert conn.path == RESOURCE
+        assert conn.path == RESOURCE + '?foo=bar'
 
 
 async def test_client_open_in_nursery(echo_server, nursery):
-    url = 'ws://{}:{}/{}'.format(HOST, echo_server.port, RESOURCE)
+    url = 'ws://{}:{}{}'.format(HOST, echo_server.port, RESOURCE)
     async with open_websocket_url(url, nursery=nursery) as conn:
         assert len(nursery.child_tasks) == 1
 

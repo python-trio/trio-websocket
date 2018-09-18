@@ -29,7 +29,7 @@ async def open_websocket(host, port, resource, use_ssl, nursery=None):
 
     :param str host: the host to connect to
     :param int port: the port to connect to
-    :param str resource: the resource (i.e. path without leading slash)
+    :param str resource: the resource a.k.a. path
     :param use_ssl: a bool or SSLContext
     :param nursery: optional Trio nursery to run background tasks in, if not
         provided, then a new nursery will be created
@@ -44,7 +44,7 @@ async def open_websocket(host, port, resource, use_ssl, nursery=None):
     else:
         raise TypeError('`use_ssl` argument must be bool or ssl.SSLContext')
 
-    logger.debug('Connecting to ws%s://%s:%d/%s',
+    logger.debug('Connecting to ws%s://%s:%d%s',
         '' if ssl_context is None else 's', host, port, resource)
     if ssl_context is None:
         stream = await trio.open_tcp_stream(host, port)
@@ -92,13 +92,13 @@ async def open_websocket_url(url, ssl_context=None, nursery=None):
     url = URL(url)
     if url.scheme not in ('ws', 'wss'):
         raise ValueError('WebSocket URL scheme must be "ws:" or "wss:"')
-    resource = url.path.lstrip('/')
     if ssl_context is None:
         use_ssl = url.scheme == 'wss'
     else:
         use_ssl = ssl_context
-    async with open_websocket(url.host, url.port, resource, use_ssl, nursery) \
-        as conn:
+    resource = '{}?{}'.format(url.path, url.query_string)
+    async with open_websocket(url.host, url.port, resource, use_ssl,
+        nursery) as conn:
         await yield_(conn)
 
 
@@ -346,6 +346,18 @@ class WebSocketConnection(trio.abc.AsyncResource):
         await self._close_web_socket(event.code, event.reason or None)
         self._close_handshake.set()
 
+    async def _handle_connection_failed_event(self, event):
+        '''
+        Handle a ConnectionFailed event.
+
+        :param event:
+        '''
+        await self._write_pending()
+        await self._close_web_socket(event.code, event.reason or None)
+        await self._close_stream()
+        self._open_handshake.set()
+        self._close_handshake.set()
+
     async def _handle_bytes_received_event(self, event):
         '''
         Handle a BytesReceived event.
@@ -394,6 +406,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         ''' A background task that reads network data and generates events. '''
         handlers = {
             'ConnectionRequested': self._handle_connection_requested_event,
+            'ConnectionFailed': self._handle_connection_failed_event,
             'ConnectionEstablished': self._handle_connection_established_event,
             'ConnectionClosed': self._handle_connection_closed_event,
             'BytesReceived': self._handle_bytes_received_event,
