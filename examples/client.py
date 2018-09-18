@@ -40,28 +40,27 @@ def parse_args():
 
 async def main(args):
     ''' Main entry point, returning False in the case of logged error. '''
-    async with trio.open_nursery() as nursery:
-        if yarl.URL(args.url).scheme == 'wss':
-            # Configure SSL context to handle our self-signed certificate. Most
-            # clients won't need to do this.
-            try:
-                ssl_context = ssl.create_default_context()
-                ssl_context.load_verify_locations(here / 'fake.ca.pem')
-            except FileNotFoundError:
-                logging.error('Did not find file "fake.ca.pem". You need to run'
-                    ' generate-cert.py')
-                return False
-        else:
-            ssl_context = None
+    if yarl.URL(args.url).scheme == 'wss':
+        # Configure SSL context to handle our self-signed certificate. Most
+        # clients won't need to do this.
         try:
-            logging.debug('Connecting to WebSocket…')
-            async with open_websocket_url(nursery, args.url, ssl_context) as conn:
-                logging.debug('Connected!')
-                await handle_connection(conn)
-            logging.debug('Connection closed')
-        except OSError as ose:
-            logging.error('Connection attempt failed: %s', ose)
+            ssl_context = ssl.create_default_context()
+            ssl_context.load_verify_locations(here / 'fake.ca.pem')
+        except FileNotFoundError:
+            logging.error('Did not find file "fake.ca.pem". You need to run'
+                ' generate-cert.py')
             return False
+    else:
+        ssl_context = None
+    try:
+        logging.debug('Connecting to WebSocket…')
+        async with open_websocket_url(args.url, ssl_context) as conn:
+            logging.debug('Connected!')
+            await handle_connection(conn)
+        logging.debug('Connection closed')
+    except OSError as ose:
+        logging.error('Connection attempt failed: %s', ose)
+        return False
 
 
 async def handle_connection(connection):

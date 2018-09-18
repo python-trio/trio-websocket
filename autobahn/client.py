@@ -4,49 +4,43 @@ test_client.py in wsproto.
 '''
 import argparse
 import logging
-from urllib.parse import urlparse
 
 import trio
-from trio_websocket import WebSocketClient, ConnectionClosed
+from trio_websocket import open_websocket_url, ConnectionClosed
+from yarl import URL
 
 
 AGENT = 'trio-websocket'
-logging.basicConfig()
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('client')
-logger.setLevel(logging.INFO)
 
 
 async def get_case_count(url):
-    uri = urlparse(url + '/getCaseCount')
-    async with trio.open_nursery() as nursery:
-        client = WebSocketClient(uri.hostname, uri.port, uri.path,
-            use_ssl=False)
-        conn = await client.connect(nursery)
+    url = URL(url).with_path('/getCaseCount')
+    async with open_websocket_url(url) as conn:
         case_count = await conn.get_message()
         logger.info('Case count=%s', case_count)
     return int(case_count)
 
 
 async def run_case(url, case):
-    uri = urlparse(url + '/runCase?case={}&agent={}'.format(
-        case, AGENT))
-    async with trio.open_nursery() as nursery:
-        client = WebSocketClient(uri.hostname, uri.port, '{}?{}'.format(uri.path, uri.query),
-            use_ssl=False)
-        conn = await client.connect(nursery)
-        try:
+    url = URL(url).with_path('/runCase').with_query(case=case, agent=AGENT)
+    logger.info('run_case %s', url)
+    try:
+        async with open_websocket_url(url) as conn:
             while True:
                 data = await conn.get_message()
                 await conn.send_message(data)
-        except ConnectionClosed:
-            pass
+    except ConnectionClosed:
+        pass
+
 
 async def update_reports(url):
-    uri = urlparse(url + '/updateReports?agent={}'.format(AGENT))
-    async with trio.open_nursery() as nursery:
-        client = WebSocketClient(uri.hostname, uri.port, '{}?{}'.format(uri.path, uri.query),
-            use_ssl=False)
-        conn = await client.connect(nursery)
+    url = URL(url).with_path('/updateReports').with_query(agent=AGENT)
+    async with open_websocket_url(url) as conn:
+        # This command runs as soon as we connect to it, so we don't need to
+        # send any messages.
+        pass
 
 
 async def run_tests(args):
