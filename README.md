@@ -18,24 +18,21 @@ from the repository root:
 
 ## Sample client
 
-A WebSocket client requires a host, port, and resource (a.k.a. path). This
-example client sends a text message and then disconnects.
+The following example demonstrates opening a WebSocket by URL. The connection
+may also be opened with `open_websocket(…)`, which takes a host, port, and
+resource as arguments.
 
     import trio
-    from trio_websocket import WebSocketServer, ConnectionClosed
+    from trio_websocket import open_websocket_url
 
 
     async def main():
         async with trio.open_nursery() as nursery:
-            client = WebSocketClient(args.host, args.port, args.resource,
-                use_ssl=False)
             try:
-                connection = await client.connect(nursery)
+                async with open_websocket_url(nursery, 'ws://localhost/foo') as conn:
+                    await conn.send_message('hello world!')
             except OSError as ose:
                 logging.error('Connection attempt failed: %s', ose)
-                return
-            await connection.send_message('hello world!')
-            await connection.close()
 
     trio.run(main)
 

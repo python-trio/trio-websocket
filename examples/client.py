@@ -12,7 +12,8 @@ import ssl
 import sys
 
 import trio
-from trio_websocket import WebSocketClient, ConnectionClosed
+from trio_websocket import open_websocket_url, ConnectionClosed
+import yarl
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -33,40 +34,34 @@ def commands():
 def parse_args():
     ''' Parse command line arguments. '''
     parser = argparse.ArgumentParser(description='Example trio-websocket client')
-    parser.add_argument('--ssl', action='store_true', help='Use SSL')
-    parser.add_argument('host', help='Host to connect to')
-    parser.add_argument('port', type=int, help='Port to connect to')
-    parser.add_argument('resource', help='Path to access on server (without'
-        ' leading slash)')
+    parser.add_argument('url', help='WebSocket URL to connect to')
     return parser.parse_args()
 
 
 async def main(args):
     ''' Main entry point, returning False in the case of logged error. '''
     async with trio.open_nursery() as nursery:
-        logging.debug('Connecting to WebSocket…')
-        ssl_context = ssl.create_default_context()
-        if args.ssl:
+        if yarl.URL(args.url).scheme == 'wss':
+            # Configure SSL context to handle our self-signed certificate. Most
+            # clients won't need to do this.
             try:
+                ssl_context = ssl.create_default_context()
                 ssl_context.load_verify_locations(here / 'fake.ca.pem')
             except FileNotFoundError:
                 logging.error('Did not find file "fake.ca.pem". You need to run'
                     ' generate-cert.py')
                 return False
-            client = WebSocketClient(args.host, args.port, args.resource,
-                use_ssl=ssl_context)
         else:
-            client = WebSocketClient(args.host, args.port, args.resource,
-                use_ssl=False)
+            ssl_context = None
         try:
-            connection = await client.connect(nursery)
+            logging.debug('Connecting to WebSocket…')
+            async with open_websocket_url(nursery, args.url, ssl_context) as conn:
+                logging.debug('Connected!')
+                await handle_connection(conn)
+            logging.debug('Connection closed')
         except OSError as ose:
             logging.error('Connection attempt failed: %s', ose)
             return False
-        logging.debug('Connected!')
-        async with connection:
-            await handle_connection(connection)
-        logging.debug('Connection closed')
 
 
 async def handle_connection(connection):

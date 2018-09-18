@@ -4,16 +4,84 @@ import logging
 import ssl
 from functools import partial
 
+from async_generator import async_generator, yield_, asynccontextmanager
 import trio
 import trio.abc
 import wsproto.connection as wsconnection
 import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
+from yarl import URL
 
 
 __version__ = '0.2.0-dev'
 RECEIVE_BYTES = 4096
 logger = logging.getLogger('trio-websocket')
+
+
+@asynccontextmanager
+@async_generator
+async def open_websocket(nursery, host, port, resource, use_ssl):
+    '''
+    Open a WebSocket client connection to a host.
+
+    This function is an async context manager that automatically connects and
+    disconnects. It yields a `WebSocketConnection` instance.
+
+    :param nursery: a trio Nursery to run background tasks in
+    :param str host: the host to connect to
+    :param int port: the port to connect to
+    :param str resource: the resource (i.e. path without leading slash)
+    :param use_ssl: a bool or SSLContext
+    '''
+
+    if use_ssl == True:
+        ssl_context = ssl.create_default_context()
+    elif use_ssl == False:
+        ssl_context = None
+    elif isinstance(use_ssl, ssl.SSLContext):
+        ssl_context = use_ssl
+    else:
+        raise TypeError('`use_ssl` argument must be bool or ssl.SSLContext')
+
+    logger.debug('Connecting to ws%s://%s:%d/%s',
+        '' if ssl_context is None else 's', host, port, resource)
+    if ssl_context is None:
+        stream = await trio.open_tcp_stream(host, port)
+    else:
+        stream = await trio.open_ssl_over_tcp_stream(host, port,
+            ssl_context=ssl_context, https_compatible=True)
+    if port in (80, 443):
+        host_header = host
+    else:
+        host_header = '{}:{}'.format(host, port)
+    wsproto = wsconnection.WSConnection(wsconnection.CLIENT, host=host_header,
+        resource=resource)
+    connection = WebSocketConnection(stream, wsproto, path=resource)
+    nursery.start_soon(connection._reader_task)
+    await connection._open_handshake.wait()
+    async with connection:
+        await yield_(connection)
+
+
+def open_websocket_url(nursery, url, ssl_context=None):
+    '''
+    Open a WebSocket client connection to a URL.
+
+    This function is an async context manager that automatically connects and
+    disconnects. It yields a `WebSocketConnection` instance.
+
+    :param str url: a WebSocket URL
+    :param ssl_context: optional SSLContext, only used for wss: URL scheme
+    '''
+    url = URL(url)
+    if url.scheme not in ('ws', 'wss'):
+        raise ValueError('WebSocket URL scheme must be "ws:" or "wss:"')
+    resource = url.path.lstrip('/')
+    if ssl_context is None:
+        use_ssl = url.scheme == 'wss'
+    else:
+        use_ssl = ssl_context
+    return open_websocket(nursery, url.host, url.port, resource, use_ssl)
 
 
 class ConnectionClosed(Exception):
@@ -432,55 +500,3 @@ class WebSocketServer:
             nursery.start_soon(self._handler, connection)
 
 
-class WebSocketClient:
-    ''' WebSocket client. '''
-
-    def __init__(self, host, port, resource, use_ssl):
-        '''
-        Constructor.
-
-        :param str host: the host to connect to
-        :param int port: the port to connect to
-        :param str resource: the resource (i.e. path without leading slash)
-        :param use_ssl: a bool or SSLContext
-        '''
-        self._host = host
-        self._port = port
-        self._resource = resource
-        if use_ssl == True:
-            self._ssl = ssl.create_default_context()
-        elif use_ssl == False:
-            self._ssl = None
-        elif isinstance(use_ssl, ssl.SSLContext):
-            self._ssl = use_ssl
-        else:
-            raise TypeError('`use_ssl` argument must be bool or ssl.SSLContext')
-
-    async def connect(self, nursery):
-        '''
-        Connect to WebSocket server.
-
-        The connection will be returned once the HTTP handshake is successful.
-
-        :param nursery: a Trio nursery to run background connection tasks in
-        :return: a WebSocketConnection
-        :raises: OSError if connection attempt fails
-        '''
-        logger.debug('Connecting to http%s://%s:%d/%s',
-            '' if self._ssl is None else 's', self._host, self._port,
-            self._resource)
-        if self._ssl is None:
-            stream = await trio.open_tcp_stream(self._host, self._port)
-        else:
-            stream = await trio.open_ssl_over_tcp_stream(self._host,
-                self._port, ssl_context=self._ssl, https_compatible=True)
-        if self._port in (80, 443):
-            host_header = self._host
-        else:
-            host_header = '{}:{}'.format(self._host, self._port)
-        wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
-            host=host_header, resource=self._resource)
-        connection = WebSocketConnection(stream, wsproto, path=self._resource)
-        nursery.start_soon(connection._reader_task)
-        await connection._open_handshake.wait()
-        return connection

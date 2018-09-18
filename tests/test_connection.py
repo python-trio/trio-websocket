@@ -1,5 +1,6 @@
 import pytest
-from trio_websocket import ConnectionClosed, WebSocketClient, WebSocketServer
+from trio_websocket import ConnectionClosed, open_websocket, \
+    open_websocket_url, WebSocketServer
 import trio
 
 
@@ -28,9 +29,21 @@ async def echo_server(nursery):
 async def echo_conn(echo_server, nursery):
     ''' Return a client connection instance that is connected to an echo
     server. '''
-    client = WebSocketClient(HOST, echo_server.port, RESOURCE, use_ssl=False)
-    async with await client.connect(nursery) as conn:
+    async with open_websocket(nursery, HOST, echo_server.port, RESOURCE,
+        use_ssl=False) as conn:
         yield conn
+
+
+async def test_client_open_url(echo_server, nursery):
+    url = 'ws://{}:{}/{}'.format(HOST, echo_server.port, RESOURCE)
+    async with open_websocket_url(nursery, url) as conn:
+        assert conn.path == RESOURCE
+
+
+async def test_client_open_invalid_url(echo_server, nursery):
+    with pytest.raises(ValueError):
+        async with open_websocket_url(nursery, 'http://foo.com/bar') as conn:
+            pass
 
 
 async def test_client_send_and_receive(echo_conn, nursery):
