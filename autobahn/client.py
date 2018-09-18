@@ -25,7 +25,6 @@ async def get_case_count(url):
 
 async def run_case(url, case):
     url = URL(url).with_path('/runCase').with_query(case=case, agent=AGENT)
-    logger.info('run_case %s', url)
     try:
         async with open_websocket_url(url) as conn:
             while True:

@@ -12,6 +12,8 @@ import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
 from yarl import URL
 
+from ._channel import open_channel, EndOfChannel
+
 
 __version__ = '0.2.0-dev'
 RECEIVE_BYTES = 4096
@@ -175,7 +177,6 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._close_reason = None
         self._id = next(self.__class__.CONNECTION_ID)
-        self._message_queue = trio.Queue(0)
         self._stream = stream
         self._stream_lock = trio.StrictFIFOLock()
         self._wsproto = wsproto
@@ -183,6 +184,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._str_message = ''
         self._reader_running = True
         self._path = path
+        self._put_channel, self._get_channel = open_channel(0)
         # Set once the WebSocket open handshake takes place, i.e.
         # ConnectionRequested for server or ConnectedEstablished for client.
         self._open_handshake = trio.Event()
@@ -253,11 +255,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
-        next_ = await self._message_queue.get()
-        if isinstance(next_, Exception):
-            raise next_
-        else:
-            return next_
+        try:
+            message = await self._get_channel.get()
+        except EndOfChannel:
+            raise ConnectionClosed(self._close_reason) from None
+        return message
 
     async def ping(self, payload):
         '''
@@ -306,12 +308,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._close_reason = CloseReason(code, reason)
         exc = ConnectionClosed(self._close_reason)
         logger.debug('conn#%d websocket closed %r', self._id, exc)
-        while True:
-            try:
-                self._message_queue.put_nowait(exc)
-                await trio.sleep(0)
-            except trio.WouldBlock:
-                break
+        self._put_channel.close()
 
     async def _handle_connection_requested_event(self, event):
         '''
@@ -362,7 +359,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._bytes_message += event.data
         if event.message_finished:
-            await self._message_queue.put(self._bytes_message)
+            await self._put_channel.put(self._bytes_message)
             self._bytes_message = b''
 
     async def _handle_text_received_event(self, event):
@@ -373,7 +370,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._str_message += event.data
         if event.message_finished:
-            await self._message_queue.put(self._str_message)
+            await self._put_channel.put(self._str_message)
             self._str_message = ''
 
     async def _handle_ping_received_event(self, event):
