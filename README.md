@@ -33,7 +33,6 @@ resource as arguments.
                     await conn.send_message('hello world!')
             except OSError as ose:
                 logging.error('Connection attempt failed: %s', ose)
-                return
 
     trio.run(main)
 

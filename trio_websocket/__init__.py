@@ -63,9 +63,7 @@ async def open_websocket(nursery, host, port, resource, use_ssl):
         await yield_(connection)
 
 
-@asynccontextmanager
-@async_generator
-async def open_websocket_url(nursery, url, ssl_context=None):
+def open_websocket_url(nursery, url, ssl_context=None):
     '''
     Open a WebSocket client connection to a URL.
 
@@ -83,9 +81,7 @@ async def open_websocket_url(nursery, url, ssl_context=None):
         use_ssl = url.scheme == 'wss'
     else:
         use_ssl = ssl_context
-    async with open_websocket(nursery, url.host, url.port, resource, use_ssl) \
-        as conn:
-        await yield_(conn)
+    return open_websocket(nursery, url.host, url.port, resource, use_ssl)
 
 
 class ConnectionClosed(Exception):
