@@ -1,8 +1,10 @@
-# Trio WebSockets
+# Trio WebSocket
 
-This project implements WebSockets [for
-Trio](https://trio.readthedocs.io/en/latest/) and is based on the Sans-I/O
-[wsproto project](https://wsproto.readthedocs.io/en/latest/).
+This project implements [the WebSocket
+protocol](https://tools.ietf.org/html/rfc6455). It is based on the [wsproto
+project](https://wsproto.readthedocs.io/en/latest/), which is a [Sans-IO](https://sans-io.readthedocs.io/) state machine that implements the majority of
+the WebSocket protocol, including framing, codecs, and events. This library
+implements the I/O using [Trio](https://trio.readthedocs.io/en/latest/).
 
 ## Installation
 
