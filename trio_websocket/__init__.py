@@ -469,7 +469,7 @@ class WebSocketServer:
     (in a new nursery),
     '''
 
-    def __init__(self, handler, ip, port, ssl_context):
+    def __init__(self, handler, host, port, ssl_context):
         '''
         Constructor.
 
@@ -477,12 +477,14 @@ class WebSocketServer:
             WebSocketConnection on each new connection.  The call will be made
             once the HTTP handshake completes, which notably implies that the
             connection's `path` property will be valid.
-        :param str ip: the IP address to bind to
+        :param host: the host interface to bind to, or ``None`` to
+            bind to wildcard interface
+        :type host: ``str``, ``bytes``, or ``None``
         :param int port: the port to bind to
         :param ssl_context: an SSLContext or None for plaintext
         '''
         self._handler = handler
-        self._ip = ip or None
+        self._host = host
         self._port = port
         self._ssl = ssl_context
 
@@ -519,15 +521,15 @@ class WebSocketServer:
         '''
         if self._ssl is None:
             serve = partial(trio.serve_tcp, self._handle_connection,
-                self._port, host=self._ip)
+                self._port, host=self._host)
         else:
             serve = partial(trio.serve_ssl_over_tcp, self._handle_connection,
                 self._port, ssl_context=self._ssl, https_compatible=True,
-                host=self._ip)
+                host=self._host)
         listener = (await nursery.start(serve))[0]
         self._port = listener.socket.getsockname()[1]
         logger.debug('Listening on http%s://%s:%d',
-            '' if self._ssl is None else 's', self._ip, self._port)
+            '' if self._ssl is None else 's', self._host, self._port)
         task_status.started()
         await trio.sleep_forever()
 

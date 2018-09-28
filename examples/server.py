@@ -27,7 +27,7 @@ def parse_args():
     ''' Parse command line arguments. '''
     parser = argparse.ArgumentParser(description='Example trio-websocket client')
     parser.add_argument('--ssl', action='store_true', help='Use SSL')
-    parser.add_argument('ip', help='IP to bind to')
+    parser.add_argument('host', help='Host interface to bind to')
     parser.add_argument('port', type=int, help='Port to bind to')
     return parser.parse_args()
 
@@ -44,8 +44,7 @@ async def main(args):
                 ' generate-cert.py')
     else:
         ssl_context = None
-    server = WebSocketServer(handler, args.ip, args.port,
-        ssl_context=ssl_context)
+    server = WebSocketServer(handler, args.host, args.port, ssl_context)
     async with trio.open_nursery() as nursery:
         await nursery.start(server.listen)
         await trio.sleep_forever()
