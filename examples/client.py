@@ -67,7 +67,6 @@ async def handle_connection(connection):
     ''' Handle the connection. '''
     while True:
         try:
-            logger.debug('top of loop')
             await trio.sleep(0.1) # allow time for connection logging
             cmd = await trio.run_sync_in_worker_thread(input, 'cmd> ',
                 cancellable=True)
