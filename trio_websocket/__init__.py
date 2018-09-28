@@ -498,7 +498,25 @@ class WebSocketServer:
         return self._port
 
     async def listen(self, *, task_status=trio.TASK_STATUS_IGNORED):
-        ''' Listen for incoming connections. '''
+        '''
+        Listen for incoming connections.
+
+        The listener and all connection tasks are spawned in an internal
+        nursery. This coroutine runs until cancelled.
+
+        :param task_status: part of Trio nursery protocol
+        '''
+        async with trio.open_nursery() as nursery:
+            await self.listen_in_nursery(nursery, task_status=task_status)
+
+    async def listen_in_nursery(self, nursery, *,
+        task_status=trio.TASK_STATUS_IGNORED):
+        '''
+        Listen for incoming connections in the specified nursery.
+
+        :param nursery:
+        :param task_status: part of Trio nursery protocol
+        '''
         if self._ssl is None:
             serve = partial(trio.serve_tcp, self._handle_connection,
                 self._port, host=self._ip)
@@ -506,13 +524,12 @@ class WebSocketServer:
             serve = partial(trio.serve_ssl_over_tcp, self._handle_connection,
                 self._port, ssl_context=self._ssl, https_compatible=True,
                 host=self._ip)
-        async with trio.open_nursery() as nursery:
-            listener = (await nursery.start(serve))[0]
-            self._port = listener.socket.getsockname()[1]
-            logger.debug('Listening on http%s://%s:%d',
-                '' if self._ssl is None else 's', self._ip, self._port)
-            task_status.started()
-            await trio.sleep_forever()
+        listener = (await nursery.start(serve))[0]
+        self._port = listener.socket.getsockname()[1]
+        logger.debug('Listening on http%s://%s:%d',
+            '' if self._ssl is None else 's', self._ip, self._port)
+        task_status.started()
+        await trio.sleep_forever()
 
     async def _handle_connection(self, stream):
         ''' Handle an incoming connection. '''
@@ -522,5 +539,3 @@ class WebSocketServer:
             nursery.start_soon(connection._reader_task)
             await connection._open_handshake.wait()
             nursery.start_soon(self._handler, connection)
-
-

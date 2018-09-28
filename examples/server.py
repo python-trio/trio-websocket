@@ -46,7 +46,9 @@ async def main(args):
         ssl_context = None
     server = WebSocketServer(handler, args.ip, args.port,
         ssl_context=ssl_context)
-    await server.listen()
+    async with trio.open_nursery() as nursery:
+        await nursery.start(server.listen)
+        await trio.sleep_forever()
 
 
 async def handler(websocket):

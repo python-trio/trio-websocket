@@ -1,5 +1,3 @@
-import logging
-
 import pytest
 from trio_websocket import ConnectionClosed, open_websocket, \
     open_websocket_url, WebSocketServer
@@ -32,6 +30,12 @@ async def echo_conn(echo_server):
     async with open_websocket(HOST, echo_server.port, RESOURCE, use_ssl=False) \
         as conn:
         yield conn
+
+
+async def null_handler(stream):
+    ''' A connection handler that doesn't do anything. This is used for tests
+    where a connection is never made. '''
+    pass
 
 
 async def test_client_open_url(echo_server):
@@ -72,3 +76,18 @@ async def test_client_nondefault_close(echo_conn):
         await echo_conn.aclose(code=1001, reason='test reason')
     assert echo_conn.closed.code == 1001
     assert echo_conn.closed.reason == 'test reason'
+
+
+async def test_serve_in_internal_nursery(nursery):
+    server = WebSocketServer(null_handler, HOST, 0, ssl_context=None)
+    await nursery.start(server.listen)
+    # The nursery has one child task (server.listen) and one sub-nursery.
+    assert len(nursery.child_tasks) == 1
+
+
+async def test_serve_in_specified_nursery(nursery):
+    server = WebSocketServer(null_handler, HOST, 0, ssl_context=None)
+    await nursery.start(server.listen_in_nursery, nursery)
+    # The nursery has two child tasks (server.listen_in_nursery and the listener
+    # itself) and no sub-nursery.
+    assert len(nursery.child_tasks) == 2
