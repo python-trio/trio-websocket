@@ -522,7 +522,7 @@ class WebSocketServer:
     (in a new nursery),
     '''
 
-    def __init__(self, handler, ip, port, ssl_context):
+    def __init__(self, handler, ip, port, ssl_context, handler_nursery=None):
         '''
         Constructor.
 
@@ -535,6 +535,7 @@ class WebSocketServer:
         :param ssl_context: an SSLContext or None for plaintext
         '''
         self._handler = handler
+        self._handler_nursery = handler_nursery
         self._ip = ip or None
         self._port = port
         self._ssl = ssl_context
@@ -554,11 +555,12 @@ class WebSocketServer:
         ''' Listen for incoming connections. '''
         if self._ssl is None:
             serve = partial(trio.serve_tcp, self._handle_connection,
-                self._port, host=self._ip)
+                self._port, host=self._ip,
+                handler_nursery=self._handler_nursery)
         else:
             serve = partial(trio.serve_ssl_over_tcp, self._handle_connection,
                 self._port, ssl_context=self._ssl, https_compatible=True,
-                host=self._ip)
+                host=self._ip, handler_nursery=self._handler_nursery)
         async with trio.open_nursery() as nursery:
             listener = (await nursery.start(serve))[0]
             self._port = listener.socket.getsockname()[1]
