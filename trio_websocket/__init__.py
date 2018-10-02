@@ -22,21 +22,46 @@ logger = logging.getLogger('trio-websocket')
 
 @asynccontextmanager
 @async_generator
-async def open_websocket(host, port, resource, use_ssl, nursery=None):
+async def open_websocket(host, port, resource, use_ssl):
     '''
     Open a WebSocket client connection to a host.
 
-    This function is an async context manager that automatically connects and
-    disconnects. It yields a `WebSocketConnection` instance.
+    This function is an async context manager that connects before entering the
+    context manager and disconnects after leaving. It yields a
+    `WebSocketConnection` instance.
+
+    ``use_ssl`` can be an ``SSLContext`` object, or if it's ``True``, then a
+    default SSL context will be created. If it is ``False``, then SSL will not
+    be used at all.
 
     :param str host: the host to connect to
     :param int port: the port to connect to
     :param str resource: the resource a.k.a. path
     :param use_ssl: a bool or SSLContext
-    :param nursery: optional Trio nursery to run background tasks in, if not
-        provided, then a new nursery will be created
     '''
+    async with trio.open_nursery() as new_nursery:
+        connection = await connect_websocket(new_nursery, host, port, resource,
+            use_ssl)
+        async with connection:
+            await yield_(connection)
 
+
+async def connect_websocket(nursery, host, port, resource, use_ssl):
+    '''
+    Return a WebSocket client connection to a host.
+
+    Most users should use ``open_websocket(…)`` instead of this function. This
+    function is not an async context manager, and it requires a nursery argument
+    for the connection's background task[s]. The caller is responsible for
+    closing the connection.
+
+    :param nursery: a Trio nursery to run background tasks in
+    :param str host: the host to connect to
+    :param int port: the port to connect to
+    :param str resource: the resource a.k.a. path
+    :param use_ssl: a bool or SSLContext
+    :rtype: WebSocketConnection
+    '''
     if use_ssl == True:
         ssl_context = ssl.create_default_context()
     elif use_ssl == False:
@@ -60,44 +85,72 @@ async def open_websocket(host, port, resource, use_ssl, nursery=None):
     wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
         host=host_header, resource=resource)
     connection = WebSocketConnection(stream, wsproto, path=resource)
-
-    async def connect_in_nursery(connection, nursery):
-        nursery.start_soon(connection._reader_task)
-        await connection._open_handshake.wait()
-        return connection
-
-    if nursery is None:
-        async with trio.open_nursery() as new_nursery:
-            connection = await connect_in_nursery(connection, new_nursery)
-            async with connection:
-                await yield_(connection)
-    else:
-        connection = await connect_in_nursery(connection, nursery)
-        async with connection:
-            await yield_(connection)
+    nursery.start_soon(connection._reader_task)
+    await connection._open_handshake.wait()
+    return connection
 
 
-def open_websocket_url(url, ssl_context=None, nursery=None):
+def open_websocket_url(url, ssl_context=None):
     '''
     Open a WebSocket client connection to a URL.
 
-    This function is an async context manager that automatically connects and
-    disconnects. It yields a `WebSocketConnection` instance.
+    This function is an async context manager that connects when entering the
+    context manager and disconnects when exiting. It yields a
+    `WebSocketConnection` instance.
+
+    If ``ssl_context`` is ``None`` and the URL scheme is ``wss:``, then a
+    default SSL context will be created. It is an error to pass an SSL context
+    for ``ws:`` URLs.
 
     :param str url: a WebSocket URL
-    :param ssl_context: optional SSLContext, only used for wss: URL scheme
-    :param nursery: optional Trio nursery to run background tasks in, if not
-        provided, then a new nursery will be created
+    :param ssl_context: optional ``SSLContext`` used for ``wss:`` URLs
+    '''
+    host, port, resource, ssl_context = _url_to_host(url, ssl_context)
+    return open_websocket(host, port, resource, ssl_context)
+
+
+async def connect_websocket_url(nursery, url, ssl_context=None):
+    '''
+    Return a WebSocket client connection to a URL.
+
+    Most users should use ``open_websocket_url(…)`` instead of this function.
+    This function is not an async context manager, and it requires a nursery
+    argument for the connection's background task[s].
+
+    If ``ssl_context`` is ``None`` and the URL scheme is ``wss:``, then a
+    default SSL context will be created. It is an error to pass an SSL context
+    for ``ws:`` URLs.
+
+    :param str url: a WebSocket URL
+    :param ssl_context: optional ``SSLContext`` used for ``wss:`` URLs
+    :param nursery: a Trio nursery to run background tasks in
+    :rtype: WebSocketConnection
+    '''
+    host, port, resource, ssl_context = _url_to_host(url, ssl_context)
+    return await connect_websocket(nursery, host, port, resource, ssl_context)
+
+
+def _url_to_host(url, ssl_context):
+    '''
+    Convert a WebSocket URL to a (host,port,resource) tuple.
+
+    The returned ``ssl_context`` is either the same object that was passed in,
+    or if ``ssl_context`` is None, then a bool indicating if a default SSL
+    context needs to be created.
+
+    :param str url: a WebSocket URL
+    :param ssl_context: ``SSLContext`` or ``None``
+    :return: tuple of ``(host, port, resource, ssl_context)``
     '''
     url = URL(url)
     if url.scheme not in ('ws', 'wss'):
         raise ValueError('WebSocket URL scheme must be "ws:" or "wss:"')
     if ssl_context is None:
-        use_ssl = url.scheme == 'wss'
-    else:
-        use_ssl = ssl_context
+        ssl_context = url.scheme == 'wss'
+    elif url.scheme == 'ws':
+        raise ValueError('SSL context must be None for ws: URL scheme')
     resource = '{}?{}'.format(url.path, url.query_string)
-    return open_websocket(url.host, url.port, resource, use_ssl, nursery)
+    return url.host, url.port, resource, ssl_context
 
 
 class ConnectionClosed(Exception):
@@ -469,7 +522,7 @@ class WebSocketServer:
     (in a new nursery),
     '''
 
-    def __init__(self, handler, ip, port, ssl_context):
+    def __init__(self, handler, ip, port, ssl_context, handler_nursery=None):
         '''
         Constructor.
 
@@ -482,6 +535,7 @@ class WebSocketServer:
         :param ssl_context: an SSLContext or None for plaintext
         '''
         self._handler = handler
+        self._handler_nursery = handler_nursery
         self._ip = ip or None
         self._port = port
         self._ssl = ssl_context
@@ -501,11 +555,12 @@ class WebSocketServer:
         ''' Listen for incoming connections. '''
         if self._ssl is None:
             serve = partial(trio.serve_tcp, self._handle_connection,
-                self._port, host=self._ip)
+                self._port, host=self._ip,
+                handler_nursery=self._handler_nursery)
         else:
             serve = partial(trio.serve_ssl_over_tcp, self._handle_connection,
                 self._port, ssl_context=self._ssl, https_compatible=True,
-                host=self._ip)
+                host=self._ip, handler_nursery=self._handler_nursery)
         async with trio.open_nursery() as nursery:
             listener = (await nursery.start(serve))[0]
             self._port = listener.socket.getsockname()[1]
