@@ -522,21 +522,28 @@ class WebSocketServer:
     (in a new nursery),
     '''
 
-    def __init__(self, handler, ip, port, ssl_context, handler_nursery=None):
+    def __init__(self, handler, host, port, ssl_context, handler_nursery=None):
         '''
         Constructor.
+
+        Note that if ``host`` is ``None`` and ``port`` is zero, then you may get
+        multiple listeners that have _different port numbers!_
 
         :param coroutine handler: the coroutine called with the corresponding
             WebSocketConnection on each new connection.  The call will be made
             once the HTTP handshake completes, which notably implies that the
             connection's `path` property will be valid.
-        :param str ip: the IP address to bind to
+        :param host: The host interface to bind. This can be an address of an
+            interface, a name that resolves to an interface address (e.g.
+            ``localhost``), or a wildcard address like ``0.0.0.0`` for IPv4 or
+            ``::`` for IPv6. If ``None``, then all local interfaces are bound.
+        :type host: str, bytes, or None
         :param int port: the port to bind to
         :param ssl_context: an SSLContext or None for plaintext
         '''
         self._handler = handler
         self._handler_nursery = handler_nursery
-        self._ip = ip or None
+        self._host = host
         self._port = port
         self._ssl = ssl_context
 
@@ -555,17 +562,17 @@ class WebSocketServer:
         ''' Listen for incoming connections. '''
         if self._ssl is None:
             serve = partial(trio.serve_tcp, self._handle_connection,
-                self._port, host=self._ip,
+                self._port, host=self._host,
                 handler_nursery=self._handler_nursery)
         else:
             serve = partial(trio.serve_ssl_over_tcp, self._handle_connection,
                 self._port, ssl_context=self._ssl, https_compatible=True,
-                host=self._ip, handler_nursery=self._handler_nursery)
+                host=self._host, handler_nursery=self._handler_nursery)
         async with trio.open_nursery() as nursery:
             listener = (await nursery.start(serve))[0]
             self._port = listener.socket.getsockname()[1]
             logger.debug('Listening on http%s://%s:%d',
-                '' if self._ssl is None else 's', self._ip, self._port)
+                '' if self._ssl is None else 's', self._host, self._port)
             task_status.started()
             await trio.sleep_forever()
 
