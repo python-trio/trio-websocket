@@ -9,6 +9,7 @@ import attr
 from ipaddress import ip_address, IPv4Address, IPv6Address
 import trio
 import trio.abc
+import trio.ssl
 import wsproto.connection as wsconnection
 import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
@@ -153,6 +154,47 @@ def _url_to_host(url, ssl_context):
         raise ValueError('SSL context must be None for ws: URL scheme')
     resource = '{}?{}'.format(url.path, url.query_string)
     return url.host, url.port, resource, ssl_context
+
+
+async def serve_websocket(handler, host, port, ssl_context,
+    handler_nursery=None, *, task_status=trio.TASK_STATUS_IGNORED):
+    '''
+    Serve a WebSocket over TCP.
+
+    This function supports the Trio nursery protocol, i.e.
+    ``server = await nursery.start(serve_websocket, …)``.
+
+    Note that if ``host`` is ``None`` and ``port`` is zero, then you may get
+    multiple listeners that have _different port numbers!_
+
+    :param coroutine handler: The coroutine called with the corresponding
+        WebSocketConnection on each new connection.  The call will be made
+        once the HTTP handshake completes, which notably implies that the
+        connection's `path` property will be valid.
+    :param host: The host interface to bind. This can be an address of an
+        interface, a name that resolves to an interface address (e.g.
+        ``localhost``), or a wildcard address like ``0.0.0.0`` for IPv4 or
+        ``::`` for IPv6. If ``None``, then all local interfaces are bound.
+    :type host: str, bytes, or None
+    :param int port: The port to bind to
+    :param ssl_context: The SSL context to use for encrypted connections, or
+        ``None`` for unencrypted connection.
+    :type ssl_context: SSLContext or None
+    :param handler_nursery: An optional nursery to spawn handlers and background
+        tasks in. If not specified, an internal nursery is used.
+    :param task_status: part of Trio nursery protocol
+    :returns: This function never returns unless cancelled.
+    '''
+    if ssl_context is None:
+        open_tcp_listeners = partial(trio.open_tcp_listeners, port, host=host)
+    else:
+        open_tcp_listeners = partial(trio.open_ssl_over_tcp_listeners, port,
+            ssl_context, host=host, https_compatible=True,
+            handler_nursery=handler_nursery)
+    listeners = await open_tcp_listeners()
+    server = WebSocketServer(handler, listeners,
+        handler_nursery=handler_nursery)
+    await server.run(task_status=task_status)
 
 
 class ConnectionClosed(Exception):
@@ -520,25 +562,27 @@ class ListenPort:
     ''' Represents a listener on a given address and port. '''
     address = attr.ib(converter=ip_address)
     port = attr.ib()
+    is_ssl = attr.ib()
 
     def __str__(self):
         ''' Return a compact representation, like 127.0.0.1:80 or [::1]:80. '''
+        scheme = 'wss' if self.is_ssl else 'ws'
         if self.address.version == 4:
-            return '{}:{}'.format(self.address, self.port)
+            return '{}://{}:{}'.format(scheme, self.address, self.port)
         else:
-            return '[{}]:{}'.format(self.address, self.port)
+            return '{}://[{}]:{}'.format(scheme, self.address, self.port)
 
 
 class WebSocketServer:
     '''
     WebSocket server.
 
-    The server class listens on a TCP socket. For each incoming connection,
-    it creates a ``WebSocketConnection`` instance, starts some background tasks
-    (in a new nursery),
+    The server class handles incoming connections on one or more ``Listener``
+    objects. For each incoming connection, it creates a ``WebSocketConnection``
+    instance and starts some background tasks,
     '''
 
-    def __init__(self, handler, host, port, ssl_context, handler_nursery=None):
+    def __init__(self, handler, listeners, *, handler_nursery=None):
         '''
         Constructor.
 
@@ -549,20 +593,13 @@ class WebSocketServer:
             WebSocketConnection on each new connection.  The call will be made
             once the HTTP handshake completes, which notably implies that the
             connection's `path` property will be valid.
-        :param host: The host interface to bind. This can be an address of an
-            interface, a name that resolves to an interface address (e.g.
-            ``localhost``), or a wildcard address like ``0.0.0.0`` for IPv4 or
-            ``::`` for IPv6. If ``None``, then all local interfaces are bound.
-        :type host: str, bytes, or None
-        :param int port: the port to bind to
-        :param ssl_context: an SSLContext or None for plaintext
+        :param listeners: The WebSocket will be served on each of the listeners.
+        :param handler_nursery: An optional nursery to spawn connection tasks
+            inside of. If ``None``, then an internal nursery is used.
         '''
         self._handler = handler
         self._handler_nursery = handler_nursery
-        self._host = host
-        self._listeners = None
-        self._port = port
-        self._ssl = ssl_context
+        self._listeners = listeners
 
     @property
     def port(self):
@@ -589,40 +626,41 @@ class WebSocketServer:
         """Return a sequence of ``ListenPort`` instances corresponding to this
         server's listeners.
         """
-        if self._listeners is None:
-            raise RuntimeError('Port number is not available because the server'
-                ' is not listening yet')
         listeners = list()
         for listener in self._listeners:
             sockname = listener.socket.getsockname()
-            listeners.append(ListenPort(*sockname))
+            is_ssl = isinstance(listener, trio.ssl.SSLListener)
+            listeners.append(ListenPort(sockname[0], sockname[1], is_ssl))
         return listeners
 
-    async def listen(self, *, task_status=trio.TASK_STATUS_IGNORED):
-        ''' Listen for incoming connections. '''
-        if self._ssl is None:
-            serve = partial(trio.serve_tcp, self._handle_connection,
-                self._port, host=self._host,
-                handler_nursery=self._handler_nursery)
-        else:
-            serve = partial(trio.serve_ssl_over_tcp, self._handle_connection,
-                self._port, ssl_context=self._ssl, https_compatible=True,
-                host=self._host, handler_nursery=self._handler_nursery)
+    async def run(self, *, task_status=trio.TASK_STATUS_IGNORED):
+        '''
+        Start serving incoming connections requests.
+
+        :param task_status: Part of the Trio nursery protocol.
+        :returns: This method never returns unless cancelled.
+        '''
         async with trio.open_nursery() as nursery:
-            self._listeners = (await nursery.start(serve))
-            listen_ports = ['ws{}://{}'.format('' if self._ssl is None else 's',
-                listener) for listener in self.listeners]
-            logger.debug('Listening on %s', ','.join(listen_ports))
-            task_status.started()
+            serve_listeners = partial(trio.serve_listeners,
+                self._handle_connection, self._listeners,
+                handler_nursery=self._handler_nursery)
+            await nursery.start(serve_listeners)
+            logger.debug('Listening on %s',
+                ','.join([str(l) for l in self.listeners]))
+            task_status.started(self)
             await trio.sleep_forever()
 
     async def _handle_connection(self, stream):
-        ''' Handle an incoming connection. '''
+        '''
+        Handle an incoming connection by spawning a connection background task
+        and a handler task inside a new nursery.
+
+        :param stream:
+        :type stream: trio.abc.Stream
+        '''
         async with trio.open_nursery() as nursery:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
             connection = WebSocketConnection(stream, wsproto)
             nursery.start_soon(connection._reader_task)
             await connection._open_handshake.wait()
             nursery.start_soon(self._handler, connection)
-
-

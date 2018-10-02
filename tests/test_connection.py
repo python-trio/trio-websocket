@@ -1,9 +1,9 @@
-import logging
+import functools
 
 import pytest
 from trio_websocket import ConnectionClosed, connect_websocket, \
-    connect_websocket_url, open_websocket, open_websocket_url, ListenPort, \
-    WebSocketServer
+    connect_websocket_url, open_websocket, open_websocket_url, \
+    serve_websocket, ListenPort
 import trio
 import trio.hazmat
 
@@ -15,8 +15,7 @@ RESOURCE = '/resource'
 async def echo_server(nursery):
     ''' A server that reads one message, sends back the same message,
     then closes the connection. '''
-    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
-    await nursery.start(server.listen)
+    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
     yield server
 
 
@@ -40,37 +39,27 @@ async def echo_handler(conn):
 
 
 async def test_listen_port_ipv4():
-    assert str(ListenPort('10.105.0.2', 80)) == '10.105.0.2:80'
-    assert str(ListenPort('127.0.0.1', 8000)) == '127.0.0.1:8000'
-    assert str(ListenPort('0.0.0.0', 443)) == '0.0.0.0:443'
+    assert str(ListenPort('10.105.0.2', 80, False)) == 'ws://10.105.0.2:80'
+    assert str(ListenPort('127.0.0.1', 8000, False)) == 'ws://127.0.0.1:8000'
+    assert str(ListenPort('0.0.0.0', 443, True)) == 'wss://0.0.0.0:443'
 
 
 async def test_listen_port_ipv6():
-    assert str(ListenPort('2599:8807:6201:b7:16cf:bb9c:a6d3:51ab', 80)) == \
-        '[2599:8807:6201:b7:16cf:bb9c:a6d3:51ab]:80'
-    assert str(ListenPort('::1', 8000)) == '[::1]:8000'
-    assert str(ListenPort('::', 443)) == '[::]:443'
+    assert str(ListenPort('2599:8807:6201:b7:16cf:bb9c:a6d3:51ab', 80, False)) \
+        == 'ws://[2599:8807:6201:b7:16cf:bb9c:a6d3:51ab]:80'
+    assert str(ListenPort('::1', 8000, False)) == 'ws://[::1]:8000'
+    assert str(ListenPort('::', 443, True)) == 'wss://[::]:443'
 
 
-async def test_no_listeners_before_listen():
-    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
-    with pytest.raises(RuntimeError):
-        server.port
-    with pytest.raises(RuntimeError):
-        server.listeners
-
-
-async def test_has_listeners_after_listen(nursery):
-    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
-    await nursery.start(server.listen)
+async def test_server_has_listeners(nursery):
+    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
     assert len(server.listeners) > 0
     assert isinstance(server.listeners[0], ListenPort)
 
 
 async def test_serve(nursery):
     task = trio.hazmat.current_task()
-    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
-    await nursery.start(server.listen)
+    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
     port = server.port
     assert server.port != 0
     # The server nursery begins with one task (server.listen).
@@ -86,9 +75,9 @@ async def test_serve(nursery):
 async def test_serve_handler_nursery(nursery):
     task = trio.hazmat.current_task()
     async with trio.open_nursery() as handler_nursery:
-        server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None,
-            handler_nursery=handler_nursery)
-        await nursery.start(server.listen)
+        serve_with_nursery = functools.partial(serve_websocket, echo_handler,
+            HOST, 0, None, handler_nursery=handler_nursery)
+        server = await nursery.start(serve_with_nursery)
         port = server.port
         # The server nursery begins with one task (server.listen).
         assert len(nursery.child_tasks) == 1
@@ -149,4 +138,3 @@ async def test_client_nondefault_close(echo_conn):
         await echo_conn.aclose(code=1001, reason='test reason')
     assert echo_conn.closed.code == 1001
     assert echo_conn.closed.reason == 'test reason'
-
