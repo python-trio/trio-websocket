@@ -2,7 +2,8 @@ import logging
 
 import pytest
 from trio_websocket import ConnectionClosed, connect_websocket, \
-    connect_websocket_url, open_websocket, open_websocket_url, WebSocketServer
+    connect_websocket_url, open_websocket, open_websocket_url, ListenPort, \
+    WebSocketServer
 import trio
 import trio.hazmat
 
@@ -36,6 +37,34 @@ async def echo_handler(conn):
         await conn.send_message(msg)
     except ConnectionClosed:
         pass
+
+
+async def test_listen_port_ipv4():
+    assert str(ListenPort('10.105.0.2', 80)) == '10.105.0.2:80'
+    assert str(ListenPort('127.0.0.1', 8000)) == '127.0.0.1:8000'
+    assert str(ListenPort('0.0.0.0', 443)) == '0.0.0.0:443'
+
+
+async def test_listen_port_ipv6():
+    assert str(ListenPort('2599:8807:6201:b7:16cf:bb9c:a6d3:51ab', 80)) == \
+        '[2599:8807:6201:b7:16cf:bb9c:a6d3:51ab]:80'
+    assert str(ListenPort('::1', 8000)) == '[::1]:8000'
+    assert str(ListenPort('::', 443)) == '[::]:443'
+
+
+async def test_no_listeners_before_listen():
+    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
+    with pytest.raises(RuntimeError):
+        server.port
+    with pytest.raises(RuntimeError):
+        server.listeners
+
+
+async def test_has_listeners_after_listen(nursery):
+    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
+    await nursery.start(server.listen)
+    assert len(server.listeners) > 0
+    assert isinstance(server.listeners[0], ListenPort)
 
 
 async def test_serve(nursery):

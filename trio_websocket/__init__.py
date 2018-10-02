@@ -5,6 +5,8 @@ import ssl
 from functools import partial
 
 from async_generator import async_generator, yield_, asynccontextmanager
+import attr
+from ipaddress import ip_address, IPv4Address, IPv6Address
 import trio
 import trio.abc
 import wsproto.connection as wsconnection
@@ -513,6 +515,20 @@ class WebSocketConnection(trio.abc.AsyncResource):
             logger.debug('conn#%d no pending data to send', self._id)
 
 
+@attr.s
+class ListenPort:
+    ''' Represents a listener on a given address and port. '''
+    address = attr.ib(converter=ip_address)
+    port = attr.ib()
+
+    def __str__(self):
+        ''' Return a compact representation, like 127.0.0.1:80 or [::1]:80. '''
+        if self.address.version == 4:
+            return '{}:{}'.format(self.address, self.port)
+        else:
+            return '[{}]:{}'.format(self.address, self.port)
+
+
 class WebSocketServer:
     '''
     WebSocket server.
@@ -544,6 +560,7 @@ class WebSocketServer:
         self._handler = handler
         self._handler_nursery = handler_nursery
         self._host = host
+        self._listeners = None
         self._port = port
         self._ssl = ssl_context
 
@@ -555,8 +572,31 @@ class WebSocketServer:
         constructor), the assigned port will be reflected after calling
         starting the `listen` task.  (Technically, once listen reaches the
         "started" state.)
+
+        This property only works if you have a single listener, and that
+        listener must support port numbers, e.g. a TCP listener.
         """
-        return self._port
+        if self._listeners is None:
+            raise RuntimeError('Port number is not available because the server'
+                ' is not listening yet')
+        if len(self._listeners) > 1:
+            raise RuntimeError('Cannot get port because this server has'
+                ' more than 1 listeners')
+        return self._listeners[0].socket.getsockname()[1]
+
+    @property
+    def listeners(self):
+        """Return a sequence of ``ListenPort`` instances corresponding to this
+        server's listeners.
+        """
+        if self._listeners is None:
+            raise RuntimeError('Port number is not available because the server'
+                ' is not listening yet')
+        listeners = list()
+        for listener in self._listeners:
+            sockname = listener.socket.getsockname()
+            listeners.append(ListenPort(*sockname))
+        return listeners
 
     async def listen(self, *, task_status=trio.TASK_STATUS_IGNORED):
         ''' Listen for incoming connections. '''
@@ -569,10 +609,10 @@ class WebSocketServer:
                 self._port, ssl_context=self._ssl, https_compatible=True,
                 host=self._host, handler_nursery=self._handler_nursery)
         async with trio.open_nursery() as nursery:
-            listener = (await nursery.start(serve))[0]
-            self._port = listener.socket.getsockname()[1]
-            logger.debug('Listening on http%s://%s:%d',
-                '' if self._ssl is None else 's', self._host, self._port)
+            self._listeners = (await nursery.start(serve))
+            listen_ports = ['ws{}://{}'.format('' if self._ssl is None else 's',
+                listener) for listener in self.listeners]
+            logger.debug('Listening on %s', ','.join(listen_ports))
             task_status.started()
             await trio.sleep_forever()
 

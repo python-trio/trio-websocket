@@ -28,7 +28,15 @@ setup(
     ],
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
-    install_requires=['async_generator', 'trio', 'wsaccel', 'wsproto', 'yarl'],
+    install_requires=[
+        'async_generator',
+        'attrs',
+        'ipaddress',
+        'trio',
+        'wsaccel',
+        'wsproto',
+        'yarl'
+    ],
     extras_require={
         'dev': ['pytest', 'pytest-trio', 'trustme'],
     },
