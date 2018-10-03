@@ -615,10 +615,15 @@ class WebSocketServer:
         This property only works if you have a single listener, and that
         listener must be socket-based.
         """
-        if len(self._listeners) != 1:
+        if len(self._listeners) > 1:
             raise RuntimeError('Cannot get port because this server has'
                 ' more than 1 listeners.')
-        return self.listeners[0].port
+        try:
+            listener = self.listeners[0]
+            return listener.port
+        except AttributeError:
+            raise RuntimeError('This socket does not have a port: {!r}'
+                .format(listener)) from None
 
     @property
     def listeners(self):

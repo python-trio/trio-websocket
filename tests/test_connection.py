@@ -1,5 +1,6 @@
 import functools
 
+import attr
 import pytest
 from trio_websocket import ConnectionClosed, connect_websocket, \
     connect_websocket_url, open_websocket, open_websocket_url, \
@@ -7,6 +8,7 @@ from trio_websocket import ConnectionClosed, connect_websocket, \
 import trio
 import trio.hazmat
 import trio.ssl
+import trio.testing
 import trustme
 
 
@@ -38,6 +40,34 @@ async def echo_handler(conn):
         await conn.send_message(msg)
     except ConnectionClosed:
         pass
+
+
+@attr.s(hash=False, cmp=False)
+class MemoryListener(trio.abc.Listener):
+    ''' This class is copied from trio's own test suite. '''
+    closed = attr.ib(default=False)
+    accepted_streams = attr.ib(default=attr.Factory(list))
+    queued_streams = attr.ib(default=attr.Factory(lambda: trio.Queue(1)))
+    accept_hook = attr.ib(default=None)
+
+    async def connect(self):
+        assert not self.closed
+        client, server = trio.testing.memory_stream_pair()
+        await self.queued_streams.put(server)
+        return client
+
+    async def accept(self):
+        await trio.hazmat.checkpoint()
+        assert not self.closed
+        if self.accept_hook is not None:
+            await self.accept_hook()
+        stream = await self.queued_streams.get()
+        self.accepted_streams.append(stream)
+        return stream
+
+    async def aclose(self):
+        self.closed = True
+        await trio.hazmat.checkpoint()
 
 
 async def test_listen_port_ipv4():
@@ -109,6 +139,34 @@ async def test_serve_with_zero_listeners(nursery):
     task = trio.hazmat.current_task()
     with pytest.raises(ValueError):
         server = WebSocketServer(echo_handler, [])
+
+
+async def test_serve_non_tcp_listener(nursery):
+    listeners = [MemoryListener()]
+    server = WebSocketServer(echo_handler, listeners)
+    await nursery.start(server.run)
+    assert len(server.listeners) == 1
+    with pytest.raises(RuntimeError):
+        server.port
+    assert server.listeners[0].startswith('MemoryListener(')
+    # TODO add support for arbitrary client streams and test here
+
+
+async def test_serve_multiple_listeners(nursery):
+    listener1 = (await trio.open_tcp_listeners(0, host=HOST))[0]
+    listener2 = MemoryListener()
+    server = WebSocketServer(echo_handler, [listener1, listener2])
+    await nursery.start(server.run)
+    assert len(server.listeners) == 2
+    with pytest.raises(RuntimeError):
+        # Even though the first listener has a port, this property is only
+        # usable if you have exactly one listener.
+        server.port
+    # The first listener metadata is a ListenPort instance.
+    assert server.listeners[0].port != 0
+    # The second listener metadata is a string containing the repr() of a
+    # MemoryListener object.
+    assert server.listeners[1].startswith('MemoryListener(')
 
 
 async def test_client_open(echo_server):
