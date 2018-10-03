@@ -189,8 +189,7 @@ async def serve_websocket(handler, host, port, ssl_context,
         open_tcp_listeners = partial(trio.open_tcp_listeners, port, host=host)
     else:
         open_tcp_listeners = partial(trio.open_ssl_over_tcp_listeners, port,
-            ssl_context, host=host, https_compatible=True,
-            handler_nursery=handler_nursery)
+            ssl_context, host=host, https_compatible=True)
     listeners = await open_tcp_listeners()
     server = WebSocketServer(handler, listeners,
         handler_nursery=handler_nursery)
@@ -587,7 +586,8 @@ class WebSocketServer:
         Constructor.
 
         Note that if ``host`` is ``None`` and ``port`` is zero, then you may get
-        multiple listeners that have _different port numbers!_
+        multiple listeners that have _different port numbers!_ See the
+        ``listeners`` property.
 
         :param coroutine handler: the coroutine called with the corresponding
             WebSocketConnection on each new connection.  The call will be made
@@ -597,6 +597,8 @@ class WebSocketServer:
         :param handler_nursery: An optional nursery to spawn connection tasks
             inside of. If ``None``, then an internal nursery is used.
         '''
+        if len(listeners) == 0:
+            raise ValueError('Listeners must contain at least one item.')
         self._handler = handler
         self._handler_nursery = handler_nursery
         self._listeners = listeners
@@ -611,26 +613,35 @@ class WebSocketServer:
         "started" state.)
 
         This property only works if you have a single listener, and that
-        listener must support port numbers, e.g. a TCP listener.
+        listener must be socket-based.
         """
-        if self._listeners is None:
-            raise RuntimeError('Port number is not available because the server'
-                ' is not listening yet')
-        if len(self._listeners) > 1:
+        if len(self._listeners) != 1:
             raise RuntimeError('Cannot get port because this server has'
-                ' more than 1 listeners')
-        return self._listeners[0].socket.getsockname()[1]
+                ' more than 1 listeners.')
+        return self.listeners[0].port
 
     @property
     def listeners(self):
-        """Return a sequence of ``ListenPort`` instances corresponding to this
-        server's listeners.
-        """
+        '''
+        Return a list of listener metadata. Each TCP listener is represented as
+        a ``ListenPort`` instance. Other listener types are represented by their
+        ``repr()``.
+        '''
         listeners = list()
         for listener in self._listeners:
-            sockname = listener.socket.getsockname()
-            is_ssl = isinstance(listener, trio.ssl.SSLListener)
-            listeners.append(ListenPort(sockname[0], sockname[1], is_ssl))
+            if isinstance(listener, trio.SocketListener):
+                socket = listener.socket
+                is_ssl = False
+            elif isinstance(listener, trio.ssl.SSLListener):
+                socket = listener.transport_listener.socket
+                is_ssl = True
+            else:
+                socket = None
+            if socket:
+                sockname = socket.getsockname()
+                listeners.append(ListenPort(*sockname, is_ssl))
+            else:
+                listeners.append(repr(listener))
         return listeners
 
     async def run(self, *, task_status=trio.TASK_STATUS_IGNORED):

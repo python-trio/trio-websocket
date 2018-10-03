@@ -3,9 +3,11 @@ import functools
 import pytest
 from trio_websocket import ConnectionClosed, connect_websocket, \
     connect_websocket_url, open_websocket, open_websocket_url, \
-    serve_websocket, ListenPort
+    serve_websocket, ListenPort, WebSocketServer
 import trio
 import trio.hazmat
+import trio.ssl
+import trustme
 
 
 HOST = 'localhost'
@@ -72,6 +74,21 @@ async def test_serve(nursery):
         assert len(task.child_nurseries) == no_clients_nursery_count + 1
 
 
+async def test_serve_ssl(nursery):
+    server_context = trio.ssl.create_default_context(
+        trio.ssl.Purpose.CLIENT_AUTH)
+    client_context = trio.ssl.create_default_context()
+    ca = trustme.CA()
+    ca.configure_trust(client_context)
+    cert = ca.issue_server_cert(HOST)
+    cert.configure_cert(server_context)
+    server = await nursery.start(serve_websocket, echo_handler, HOST, 0,
+        server_context)
+    port = server.port
+    async with open_websocket(HOST, port, RESOURCE, client_context) as conn:
+        assert not conn.closed
+
+
 async def test_serve_handler_nursery(nursery):
     task = trio.hazmat.current_task()
     async with trio.open_nursery() as handler_nursery:
@@ -86,6 +103,12 @@ async def test_serve_handler_nursery(nursery):
             # The handler nursery should have one task in it
             # (conn._reader_task).
             assert len(handler_nursery.child_tasks) == 1
+
+
+async def test_serve_with_zero_listeners(nursery):
+    task = trio.hazmat.current_task()
+    with pytest.raises(ValueError):
+        server = WebSocketServer(echo_handler, [])
 
 
 async def test_client_open(echo_server):
