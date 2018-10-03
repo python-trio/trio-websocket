@@ -2,9 +2,7 @@ import functools
 
 import attr
 import pytest
-from trio_websocket import ConnectionClosed, connect_websocket, \
-    connect_websocket_url, open_websocket, open_websocket_url, \
-    serve_websocket, ListenPort, WebSocketServer
+from trio_websocket import *
 import trio
 import trio.hazmat
 import trio.ssl
@@ -219,3 +217,19 @@ async def test_client_nondefault_close(echo_conn):
         await echo_conn.aclose(code=1001, reason='test reason')
     assert echo_conn.closed.code == 1001
     assert echo_conn.closed.reason == 'test reason'
+
+
+async def test_wrap_stream(nursery):
+    client_stream, server_stream = trio.testing.memory_stream_pair()
+    # The wrap_* functions don't return until the WebSocket handshake is
+    # complete, so they need to be run as tasks.
+    server = wrap_server_stream(nursery, server_stream)
+    client = wrap_client_stream(nursery, client_stream, HOST, RESOURCE)
+    await server.wait_open_handshake()
+    await client.wait_open_handshake()
+    async with client, server:
+        assert not client.closed
+        assert not server.closed
+        await client.send_message('This is a test')
+        msg = await server.get_message()
+        assert msg == 'This is a test'

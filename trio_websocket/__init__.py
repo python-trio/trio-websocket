@@ -156,6 +156,50 @@ def _url_to_host(url, ssl_context):
     return url.host, url.port, resource, ssl_context
 
 
+def wrap_client_stream(nursery, stream, host, resource):
+    '''
+    Wrap an arbitrary stream in a client-side ``WebSocketConnection``.
+
+    This is a low-level function only needed in rare cases. Most users should
+    call ``open_websocket()`` or ``open_websocket_url()``.
+
+    The returned connection object is not immediately usable: the caller should
+    wait for the ``open_handshake`` event before trying to use the connection.
+
+    :param nursery: A Trio nursery to run background tasks in.
+    :param stream: A Trio stream to be wrapped.
+    :param str host: A host string that will be sent in the ``Host:`` header.
+    :param str resource: A resource string, i.e. the path component to be
+        accessed on the server.
+    :rtype: WebSocketConnection
+    '''
+    wsproto = wsconnection.WSConnection(wsconnection.CLIENT, host=host,
+        resource=resource)
+    connection = WebSocketConnection(stream, wsproto, path=resource)
+    nursery.start_soon(connection._reader_task)
+    return connection
+
+
+def wrap_server_stream(nursery, stream):
+    '''
+    Wrap an arbitrary stream in a server-side ``WebSocketConnection``.
+
+    This is a low-level function only needed in rare cases. Most users should
+    call ``serve_websocket()`.
+
+    The returned connection object is not immediately usable: the caller should
+    wait for the ``open_handshake`` event before trying to use the connection.
+
+    :param nursery: A Trio nursery to run background tasks in.
+    :param stream: A Trio stream to be wrapped.
+    :rtype: WebSocketConnection
+    '''
+    wsproto = wsconnection.WSConnection(wsconnection.SERVER)
+    connection = WebSocketConnection(stream, wsproto)
+    nursery.start_soon(connection._reader_task)
+    return connection
+
+
 async def serve_websocket(handler, host, port, ssl_context,
     handler_nursery=None, *, task_status=trio.TASK_STATUS_IGNORED):
     '''
@@ -386,6 +430,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
             raise ConnectionClosed(self._close_reason)
         self._wsproto.send_data(message)
         await self._write_pending()
+
+    async def wait_open_handshake(self):
+        ''' Wait for this connection's open handshake to be completed. '''
+        await self._open_handshake.wait()
 
     async def _close_stream(self):
         ''' Close the TCP connection. '''
