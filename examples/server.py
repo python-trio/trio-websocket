@@ -27,7 +27,8 @@ def parse_args():
     ''' Parse command line arguments. '''
     parser = argparse.ArgumentParser(description='Example trio-websocket client')
     parser.add_argument('--ssl', action='store_true', help='Use SSL')
-    parser.add_argument('host', help='Host interface to bind to (all)')
+    parser.add_argument('host', help='Host interface to bind to (* binds to all'
+        'interfaces)')
     parser.add_argument('port', type=int, help='Port to bind to')
     return parser.parse_args()
 
@@ -44,7 +45,7 @@ async def main(args):
                 ' generate-cert.py')
     else:
         ssl_context = None
-    host = args.host if args.host == '' else None
+    host = None if args.host == '*' else args.host
     await serve_websocket(handler, host, args.port, ssl_context)
 
 

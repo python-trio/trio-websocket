@@ -17,7 +17,9 @@ RESOURCE = '/resource'
 async def echo_server(nursery):
     ''' A server that reads one message, sends back the same message,
     then closes the connection. '''
-    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
+    serve_fn = functools.partial(serve_websocket, echo_handler, HOST, 0,
+        ssl_context=None)
+    server = await nursery.start(serve_fn)
     yield server
 
 
@@ -219,17 +221,28 @@ async def test_client_nondefault_close(echo_conn):
     assert echo_conn.closed.reason == 'test reason'
 
 
-async def test_wrap_stream(nursery):
-    client_stream, server_stream = trio.testing.memory_stream_pair()
-    # The wrap_* functions don't return until the WebSocket handshake is
-    # complete, so they need to be run as tasks.
-    server = wrap_server_stream(nursery, server_stream)
-    client = wrap_client_stream(nursery, client_stream, HOST, RESOURCE)
-    await server.wait_open_handshake()
-    await client.wait_open_handshake()
-    async with client, server:
-        assert not client.closed
-        assert not server.closed
-        await client.send_message('This is a test')
-        msg = await server.get_message()
-        assert msg == 'This is a test'
+async def test_wrap_client_stream(echo_server, nursery):
+    stream = await trio.open_tcp_stream(HOST, echo_server.port)
+    conn = await nursery.start(wrap_client_stream, nursery, stream, HOST,
+        RESOURCE)
+    async with conn:
+        assert not conn.closed
+        await conn.send_message('Hello from client!')
+        msg = await conn.get_message()
+        assert msg == 'Hello from client!'
+    assert conn.closed
+
+
+async def test_wrap_server_stream(nursery):
+    async def handler(stream):
+        server = await nursery.start(wrap_server_stream, nursery, stream)
+        async with server:
+            assert not server.closed
+            msg = await server.get_message()
+            assert msg == 'Hello from client!'
+        assert server.closed
+    serve_fn = functools.partial(trio.serve_tcp, handler, 0, host=HOST)
+    listeners = await nursery.start(serve_fn)
+    port = listeners[0].socket.getsockname()[1]
+    async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
+        await client.send_message('Hello from client!')
