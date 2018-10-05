@@ -27,9 +27,9 @@ def parse_args():
     ''' Parse command line arguments. '''
     parser = argparse.ArgumentParser(description='Example trio-websocket client')
     parser.add_argument('--ssl', action='store_true', help='Use SSL')
-    parser.add_argument('host', help='Host interface to bind to (* binds to all'
-        'interfaces)')
-    parser.add_argument('port', type=int, help='Port to bind to')
+    parser.add_argument('host', help='Host interface to bind. If omitted, '
+        'then bind all interfaces.', nargs='?')
+    parser.add_argument('port', type=int, help='Port to bind.')
     return parser.parse_args()
 
 
