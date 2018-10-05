@@ -1,10 +1,13 @@
-import logging
+import functools
 
+import attr
 import pytest
-from trio_websocket import ConnectionClosed, connect_websocket, \
-    connect_websocket_url, open_websocket, open_websocket_url, WebSocketServer
+from trio_websocket import *
 import trio
 import trio.hazmat
+import trio.ssl
+import trio.testing
+import trustme
 
 
 HOST = 'localhost'
@@ -14,8 +17,9 @@ RESOURCE = '/resource'
 async def echo_server(nursery):
     ''' A server that reads one message, sends back the same message,
     then closes the connection. '''
-    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
-    await nursery.start(server.listen)
+    serve_fn = functools.partial(serve_websocket, echo_handler, HOST, 0,
+        ssl_context=None)
+    server = await nursery.start(serve_fn)
     yield server
 
 
@@ -38,10 +42,56 @@ async def echo_handler(conn):
         pass
 
 
+@attr.s(hash=False, cmp=False)
+class MemoryListener(trio.abc.Listener):
+    ''' This class is copied from trio's own test suite. '''
+    closed = attr.ib(default=False)
+    accepted_streams = attr.ib(default=attr.Factory(list))
+    queued_streams = attr.ib(default=attr.Factory(lambda: trio.Queue(1)))
+    accept_hook = attr.ib(default=None)
+
+    async def connect(self):
+        assert not self.closed
+        client, server = trio.testing.memory_stream_pair()
+        await self.queued_streams.put(server)
+        return client
+
+    async def accept(self):
+        await trio.hazmat.checkpoint()
+        assert not self.closed
+        if self.accept_hook is not None:
+            await self.accept_hook()
+        stream = await self.queued_streams.get()
+        self.accepted_streams.append(stream)
+        return stream
+
+    async def aclose(self):
+        self.closed = True
+        await trio.hazmat.checkpoint()
+
+
+async def test_listen_port_ipv4():
+    assert str(ListenPort('10.105.0.2', 80, False)) == 'ws://10.105.0.2:80'
+    assert str(ListenPort('127.0.0.1', 8000, False)) == 'ws://127.0.0.1:8000'
+    assert str(ListenPort('0.0.0.0', 443, True)) == 'wss://0.0.0.0:443'
+
+
+async def test_listen_port_ipv6():
+    assert str(ListenPort('2599:8807:6201:b7:16cf:bb9c:a6d3:51ab', 80, False)) \
+        == 'ws://[2599:8807:6201:b7:16cf:bb9c:a6d3:51ab]:80'
+    assert str(ListenPort('::1', 8000, False)) == 'ws://[::1]:8000'
+    assert str(ListenPort('::', 443, True)) == 'wss://[::]:443'
+
+
+async def test_server_has_listeners(nursery):
+    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
+    assert len(server.listeners) > 0
+    assert isinstance(server.listeners[0], ListenPort)
+
+
 async def test_serve(nursery):
     task = trio.hazmat.current_task()
-    server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None)
-    await nursery.start(server.listen)
+    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
     port = server.port
     assert server.port != 0
     # The server nursery begins with one task (server.listen).
@@ -54,12 +104,27 @@ async def test_serve(nursery):
         assert len(task.child_nurseries) == no_clients_nursery_count + 1
 
 
+async def test_serve_ssl(nursery):
+    server_context = trio.ssl.create_default_context(
+        trio.ssl.Purpose.CLIENT_AUTH)
+    client_context = trio.ssl.create_default_context()
+    ca = trustme.CA()
+    ca.configure_trust(client_context)
+    cert = ca.issue_server_cert(HOST)
+    cert.configure_cert(server_context)
+    server = await nursery.start(serve_websocket, echo_handler, HOST, 0,
+        server_context)
+    port = server.port
+    async with open_websocket(HOST, port, RESOURCE, client_context) as conn:
+        assert not conn.closed
+
+
 async def test_serve_handler_nursery(nursery):
     task = trio.hazmat.current_task()
     async with trio.open_nursery() as handler_nursery:
-        server = WebSocketServer(echo_handler, HOST, 0, ssl_context=None,
-            handler_nursery=handler_nursery)
-        await nursery.start(server.listen)
+        serve_with_nursery = functools.partial(serve_websocket, echo_handler,
+            HOST, 0, None, handler_nursery=handler_nursery)
+        server = await nursery.start(serve_with_nursery)
         port = server.port
         # The server nursery begins with one task (server.listen).
         assert len(nursery.child_tasks) == 1
@@ -68,6 +133,40 @@ async def test_serve_handler_nursery(nursery):
             # The handler nursery should have one task in it
             # (conn._reader_task).
             assert len(handler_nursery.child_tasks) == 1
+
+
+async def test_serve_with_zero_listeners(nursery):
+    task = trio.hazmat.current_task()
+    with pytest.raises(ValueError):
+        server = WebSocketServer(echo_handler, [])
+
+
+async def test_serve_non_tcp_listener(nursery):
+    listeners = [MemoryListener()]
+    server = WebSocketServer(echo_handler, listeners)
+    await nursery.start(server.run)
+    assert len(server.listeners) == 1
+    with pytest.raises(RuntimeError):
+        server.port
+    assert server.listeners[0].startswith('MemoryListener(')
+    # TODO add support for arbitrary client streams and test here
+
+
+async def test_serve_multiple_listeners(nursery):
+    listener1 = (await trio.open_tcp_listeners(0, host=HOST))[0]
+    listener2 = MemoryListener()
+    server = WebSocketServer(echo_handler, [listener1, listener2])
+    await nursery.start(server.run)
+    assert len(server.listeners) == 2
+    with pytest.raises(RuntimeError):
+        # Even though the first listener has a port, this property is only
+        # usable if you have exactly one listener.
+        server.port
+    # The first listener metadata is a ListenPort instance.
+    assert server.listeners[0].port != 0
+    # The second listener metadata is a string containing the repr() of a
+    # MemoryListener object.
+    assert server.listeners[1].startswith('MemoryListener(')
 
 
 async def test_client_open(echo_server):
@@ -121,3 +220,28 @@ async def test_client_nondefault_close(echo_conn):
     assert echo_conn.closed.code == 1001
     assert echo_conn.closed.reason == 'test reason'
 
+
+async def test_wrap_client_stream(echo_server, nursery):
+    stream = await trio.open_tcp_stream(HOST, echo_server.port)
+    conn = await wrap_client_stream(nursery, stream, HOST, RESOURCE)
+    async with conn:
+        assert not conn.closed
+        await conn.send_message('Hello from client!')
+        msg = await conn.get_message()
+        assert msg == 'Hello from client!'
+    assert conn.closed
+
+
+async def test_wrap_server_stream(nursery):
+    async def handler(stream):
+        server = await wrap_server_stream(nursery, stream)
+        async with server:
+            assert not server.closed
+            msg = await server.get_message()
+            assert msg == 'Hello from client!'
+        assert server.closed
+    serve_fn = functools.partial(trio.serve_tcp, handler, 0, host=HOST)
+    listeners = await nursery.start(serve_fn)
+    port = listeners[0].socket.getsockname()[1]
+    async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
+        await client.send_message('Hello from client!')
