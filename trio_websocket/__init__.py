@@ -331,14 +331,16 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._close_handshake = trio.Event()
 
     @property
-    def closed(self):
+    def close_reason(self):
         '''
-        If the WebSocket connection is open and usable, this property is None.
-        If the WebSocket connection is closed, no further operations are
-        permitted and this property contains a ``CloseReason`` object indicating
-        why the connection was closed.
+        A ``CloseReason`` object indicating why the connection was closed.
         '''
         return self._close_reason
+
+    @property
+    def is_closed(self):
+        ''' A boolean indicating whether the WebSocket is closed. '''
+        return self._close_reason is not None
 
     @property
     def is_client(self):
@@ -360,8 +362,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         Close the WebSocket connection.
 
         This sends a closing frame and suspends until the connection is closed.
-        After calling this method, any futher operations on this WebSocket (such
-        as ``get_message()`` or ``send_message()``) will raise
+        After calling this method, any futher I/O on this WebSocket (such as
+        ``get_message()`` or ``send_message()``) will raise
         ``ConnectionClosed``.
 
         :param int code:
@@ -429,6 +431,23 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._wsproto.send_data(message)
         await self._write_pending()
 
+    def _abort_web_socket(self):
+        '''
+        If a stream is closed outside of this class, e.g. due to network
+        conditions or because some other code closed our stream object, then we
+        cannot perform the close handshake. We just need to clean up internal
+        state.
+        '''
+        close_reason = wsframeproto.CloseReason.ABNORMAL_CLOSURE
+        if not self._wsproto.closed:
+            self._wsproto.close(close_reason)
+        if self._close_reason is None:
+            self._close_web_socket(close_reason)
+        self._reader_running = False
+        # We didn't really handshake, but we want any task waiting on this event
+        # (e.g. self.aclose()) to resume.
+        self._close_handshake.set()
+
     async def _close_stream(self):
         ''' Close the TCP connection. '''
         self._reader_running = False
@@ -438,10 +457,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # This means the TCP connection is already dead.
             pass
 
-    async def _close_web_socket(self, code, reason):
+    def _close_web_socket(self, code, reason=None):
         '''
-        Mark the WebSocket as closed. If any tasks are suspended on
-        get_message(), wake them up with a ConnectionClosed exception.
+        Mark the WebSocket as closed. Close the message channel so that if any
+        tasks are suspended in get_message(), they will wake up with a
+        ConnectionClosed exception.
         '''
         self._close_reason = CloseReason(code, reason)
         exc = ConnectionClosed(self._close_reason)
@@ -474,7 +494,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param event:
         '''
         await self._write_pending()
-        await self._close_web_socket(event.code, event.reason or None)
+        self._close_web_socket(event.code, event.reason or None)
         self._close_handshake.set()
 
     async def _handle_connection_failed_event(self, event):
@@ -484,7 +504,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param event:
         '''
         await self._write_pending()
-        await self._close_web_socket(event.code, event.reason or None)
+        self._close_web_socket(event.code, event.reason or None)
         await self._close_stream()
         self._open_handshake.set()
         self._close_handshake.set()
@@ -566,7 +586,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # Get network data.
             try:
                 data = await self._stream.receive_some(RECEIVE_BYTES)
-            except trio.ClosedResourceError:
+            except (trio.BrokenStreamError, trio.ClosedResourceError):
+                self._abort_web_socket()
                 break
             if len(data) == 0:
                 logger.debug('conn#%d received zero bytes (connection closed)',
@@ -574,10 +595,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 # If TCP closed before WebSocket, then record it as an abnormal
                 # closure.
                 if not self._wsproto.closed:
-                    await self._close_web_socket(
-                        wsframeproto.CloseReason.ABNORMAL_CLOSURE,
-                        'TCP connection aborted')
-                await self._close_stream()
+                    self._abort_web_socket()
                 break
             else:
                 logger.debug('conn#%d received %d bytes', self._id, len(data))
@@ -593,7 +611,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # at the same time, so we need to synchronize access to this stream.
             async with self._stream_lock:
                 logger.debug('conn#%d sending %d bytes', self._id, len(data))
-                await self._stream.send_all(data)
+                try:
+                    await self._stream.send_all(data)
+                except (trio.BrokenStreamError, trio.ClosedResourceError):
+                    self._abort_web_socket()
+                    raise ConnectionClosed(self._close_reason) from None
         else:
             logger.debug('conn#%d no pending data to send', self._id)
 
