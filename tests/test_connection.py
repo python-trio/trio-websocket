@@ -223,8 +223,7 @@ async def test_client_nondefault_close(echo_conn):
 
 async def test_wrap_client_stream(echo_server, nursery):
     stream = await trio.open_tcp_stream(HOST, echo_server.port)
-    conn = await nursery.start(wrap_client_stream, nursery, stream, HOST,
-        RESOURCE)
+    conn = await wrap_client_stream(nursery, stream, HOST, RESOURCE)
     async with conn:
         assert not conn.closed
         await conn.send_message('Hello from client!')
@@ -235,7 +234,7 @@ async def test_wrap_client_stream(echo_server, nursery):
 
 async def test_wrap_server_stream(nursery):
     async def handler(stream):
-        server = await nursery.start(wrap_server_stream, nursery, stream)
+        server = await wrap_server_stream(nursery, stream)
         async with server:
             assert not server.closed
             msg = await server.get_message()

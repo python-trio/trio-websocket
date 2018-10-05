@@ -156,25 +156,18 @@ def _url_to_host(url, ssl_context):
     return url.host, url.port, resource, ssl_context
 
 
-async def wrap_client_stream(nursery, stream, host, resource, *,
-    task_status=trio.TASK_STATUS_IGNORED):
+async def wrap_client_stream(nursery, stream, host, resource):
     '''
     Wrap an arbitrary stream in a client-side ``WebSocketConnection``.
 
     This is a low-level function only needed in rare cases. Most users should
     call ``open_websocket()`` or ``open_websocket_url()``.
 
-    This function supports the Trio nursery protocol. It should be started like
-    this: ``conn = await nursery.start(wrap_client_stream, …)``. It will suspend
-    until the connection's WebSocket open handshake is complete and then return
-    the connection object.
-
     :param nursery: A Trio nursery to run background tasks in.
     :param stream: A Trio stream to be wrapped.
     :param str host: A host string that will be sent in the ``Host:`` header.
     :param str resource: A resource string, i.e. the path component to be
         accessed on the server.
-    :param task_status: part of Trio nursery protocol
     :rtype: WebSocketConnection
     '''
     wsproto = wsconnection.WSConnection(wsconnection.CLIENT, host=host,
@@ -182,33 +175,25 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
     connection = WebSocketConnection(stream, wsproto, path=resource)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
-    task_status.started(connection)
     return connection
 
 
-async def wrap_server_stream(nursery, stream, *,
-    task_status=trio.TASK_STATUS_IGNORED):
+async def wrap_server_stream(nursery, stream):
     '''
     Wrap an arbitrary stream in a server-side ``WebSocketConnection``.
 
     This is a low-level function only needed in rare cases. Most users should
     call ``serve_websocket()`.
 
-    This function supports the Trio nursery protocol. It should be started like
-    this: ``conn = await nursery.start(wrap_server_stream, …)``. It will suspend
-    until the connection's WebSocket open handshake is complete and then return
-    the connection object.
-
     :param nursery: A Trio nursery to run background tasks in.
     :param stream: A Trio stream to be wrapped.
-    :param task_status: part of Trio nursery protocol
+    :param task_status: part of Trio nursery start protocol
     :rtype: WebSocketConnection
     '''
     wsproto = wsconnection.WSConnection(wsconnection.SERVER)
     connection = WebSocketConnection(stream, wsproto)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
-    task_status.started(connection)
     return connection
 
 
@@ -217,10 +202,9 @@ async def serve_websocket(handler, host, port, ssl_context, *,
     '''
     Serve a WebSocket over TCP.
 
-    This function supports the Trio nursery protocol. It should be started like
-    this: ``server = await nursery.start(serve_websocket, …)``. It will suspend
-    until the connection's WebSocket open handshake is complete and then return
-    the connection object.
+    This function supports the Trio nursery start protocol: ``server = await
+    nursery.start(serve_websocket, …)``. It will suspend until the connection's
+    WebSocket open handshake is complete and then return the connection object.
 
     Note that if ``host`` is ``None`` and ``port`` is zero, then you may get
     multiple listeners that have _different port numbers!_
@@ -240,7 +224,7 @@ async def serve_websocket(handler, host, port, ssl_context, *,
     :type ssl_context: SSLContext or None
     :param handler_nursery: An optional nursery to spawn handlers and background
         tasks in. If not specified, an internal nursery is used.
-    :param task_status: part of Trio nursery protocol
+    :param task_status: part of Trio nursery start protocol
     :returns: This function never returns unless cancelled.
     '''
     if ssl_context is None:
@@ -711,10 +695,11 @@ class WebSocketServer:
         '''
         Start serving incoming connections requests.
 
-        This method supports the Trio nursery protocol. It should be started
-        like this: ``await nursery.start(server.run, …)``.
+        This method supports the Trio nursery start protocol: ``await
+        nursery.start(server.run, …)``. This ensures that the server is ready
+        to accept connections.
 
-        :param task_status: Part of the Trio nursery protocol.
+        :param task_status: Part of the Trio nursery start protocol.
         :returns: This method never returns unless cancelled.
         '''
         async with trio.open_nursery() as nursery:
