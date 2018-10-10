@@ -16,9 +16,8 @@ import wsproto.frame_protocol as wsframeproto
 from yarl import URL
 
 from ._channel import open_channel, EndOfChannel
+from .version import __version__
 
-
-__version__ = '0.2.0-dev'
 RECEIVE_BYTES = 4096
 logger = logging.getLogger('trio-websocket')
 
