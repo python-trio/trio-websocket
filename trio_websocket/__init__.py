@@ -202,13 +202,13 @@ async def serve_websocket(handler, host, port, ssl_context, *,
     Serve a WebSocket over TCP.
 
     This function supports the Trio nursery start protocol: ``server = await
-    nursery.start(serve_websocket, …)``. It will suspend until the connection's
-    WebSocket open handshake is complete and then return the connection object.
+    nursery.start(serve_websocket, …)``. It will block until the server
+    is accepting connections and then return the WebSocketServer object.
 
     Note that if ``host`` is ``None`` and ``port`` is zero, then you may get
     multiple listeners that have _different port numbers!_
 
-    :param coroutine handler: The coroutine called with the corresponding
+    :param handler: The async function called with the corresponding
         WebSocketConnection on each new connection.  The call will be made
         once the HTTP handshake completes, which notably implies that the
         connection's `path` property will be valid.
@@ -222,7 +222,7 @@ async def serve_websocket(handler, host, port, ssl_context, *,
         ``None`` for unencrypted connection.
     :type ssl_context: SSLContext or None
     :param handler_nursery: An optional nursery to spawn handlers and background
-        tasks in. If not specified, an internal nursery is used.
+        tasks in. If not specified, a new nursery will be created internally.
     :param task_status: part of Trio nursery start protocol
     :returns: This function never returns unless cancelled.
     '''
@@ -652,13 +652,14 @@ class WebSocketServer:
         multiple listeners that have _different port numbers!_ See the
         ``listeners`` property.
 
-        :param coroutine handler: the coroutine called with the corresponding
+        :param handler: the async function called with the corresponding
             WebSocketConnection on each new connection.  The call will be made
             once the HTTP handshake completes, which notably implies that the
             connection's `path` property will be valid.
         :param listeners: The WebSocket will be served on each of the listeners.
         :param handler_nursery: An optional nursery to spawn connection tasks
-            inside of. If ``None``, then an internal nursery is used.
+            inside of. If ``None``, then a new nursery will be created
+            internally.
         '''
         if len(listeners) == 0:
             raise ValueError('Listeners must contain at least one item.')
