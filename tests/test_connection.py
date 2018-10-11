@@ -10,7 +10,7 @@ import trio.testing
 import trustme
 
 
-HOST = 'localhost'
+HOST = '127.0.0.1'
 RESOURCE = '/resource'
 
 @pytest.fixture
