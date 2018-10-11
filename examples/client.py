@@ -17,7 +17,6 @@ import yarl
 
 
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger()
 here = pathlib.Path(__file__).parent
 
 
@@ -54,9 +53,11 @@ async def main(args):
         ssl_context = None
     try:
         logging.debug('Connecting to WebSocket…')
-        async with open_websocket_url(args.url, ssl_context) as conn:
-            logging.debug('Connected!')
-            await handle_connection(conn)
+        async with trio.open_nursery() as nursery:
+            async with open_websocket_url(args.url, ssl_context,
+                cancel_scope=nursery.cancel_scope) as conn:
+                logging.debug('Connected!')
+                await handle_connection(conn)
         logging.debug('Connection closed')
     except OSError as ose:
         logging.error('Connection attempt failed: %s', ose)
@@ -67,7 +68,6 @@ async def handle_connection(connection):
     ''' Handle the connection. '''
     while True:
         try:
-            logger.debug('top of loop')
             await trio.sleep(0.1) # allow time for connection logging
             cmd = await trio.run_sync_in_worker_thread(input, 'cmd> ',
                 cancellable=True)
