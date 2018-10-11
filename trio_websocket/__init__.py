@@ -452,7 +452,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = False
         try:
             await self._stream.aclose()
-        except trio.BrokenStreamError:
+        except trio.BrokenResourceError:
             # This means the TCP connection is already dead.
             pass
 
@@ -585,7 +585,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # Get network data.
             try:
                 data = await self._stream.receive_some(RECEIVE_BYTES)
-            except (trio.BrokenStreamError, trio.ClosedResourceError):
+            except (trio.BrokenResourceError, trio.ClosedResourceError):
                 self._abort_web_socket()
                 break
             if len(data) == 0:
@@ -612,7 +612,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 logger.debug('conn#%d sending %d bytes', self._id, len(data))
                 try:
                     await self._stream.send_all(data)
-                except (trio.BrokenStreamError, trio.ClosedResourceError):
+                except (trio.BrokenResourceError, trio.ClosedResourceError):
                     self._abort_web_socket()
                     raise ConnectionClosed(self._close_reason) from None
         else:
