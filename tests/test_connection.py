@@ -274,3 +274,12 @@ async def test_server_does_not_close_handshake(nursery):
     async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
         with pytest.raises(ConnectionClosed):
             await client.get_message()
+
+
+async def test_connection_cancel_scope(echo_server):
+    async with trio.open_nursery() as nursery:
+        async with open_websocket(HOST, echo_server.port, RESOURCE,
+            use_ssl=False, cancel_scope=nursery.cancel_scope) as conn:
+            pass
+        await trio.sleep(0)
+    assert nursery.cancel_scope.cancel_called
