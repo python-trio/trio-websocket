@@ -1,0 +1,21 @@
+language: python
+
+git:
+  depth: 1
+
+matrix:
+  include:
+    - python: 3.6
+    - python: 3.7
+      dist: xenial
+      sudo: true
+
+install:
+  - pip install -e .[dev]
+
+script:
+  - pytest --cov=trio_websocket
+
+after_success:
+  - cat .coverage
+  - coveralls -v

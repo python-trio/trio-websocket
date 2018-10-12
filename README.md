@@ -1,3 +1,9 @@
+[![PyPI](https://img.shields.io/pypi/v/trio-websocket.svg?style=flat-square)](https://pypi.org/project/trio-websocket/)
+![Python Versions](https://img.shields.io/pypi/pyversions/trio-websocket.svg?style=flat-square)
+![MIT License](https://img.shields.io/github/license/HyperionGray/trio-websocket.svg?style=flat-square)
+[![Build Status](https://img.shields.io/travis/HyperionGray/trio-websocket.svg?style=flat-square)](https://travis-ci.org/HyperionGray/trio-websocket)
+[![Coverage](https://img.shields.io/coveralls/github/HyperionGray/trio-websocket.svg?style=flat-square)](https://coveralls.io/github/HyperionGray/trio-websocket?branch=master)
+
 # Trio WebSocket
 
 This project implements [the WebSocket
@@ -68,6 +74,32 @@ to each incoming message with an identical outgoing message.
 
 A longer example is in `examples/server.py`. **See the note above about using
 SSL with the example client.**
+
+## Unit Tests
+
+Unit tests are written in the pytest style. You must install the development
+dependencies as described in the installation section above. The
+``--cov=trio_websocket`` flag turns on code coverage.
+
+    $ pytest --cov=trio_websocket
+    === test session starts ===
+    platform linux -- Python 3.6.6, pytest-3.8.0, py-1.6.0, pluggy-0.7.1
+    rootdir: /home/mhaase/code/trio-websocket, inifile: pytest.ini
+    plugins: trio-0.5.0, cov-2.6.0
+    collected 21 items
+
+    tests/test_connection.py ..................... [100%]
+
+    --- coverage: platform linux, python 3.6.6-final-0 ---
+    Name                         Stmts   Miss  Cover
+    ------------------------------------------------
+    trio_websocket/__init__.py     297     40    87%
+    trio_websocket/_channel.py     140     52    63%
+    trio_websocket/version.py        1      0   100%
+    ------------------------------------------------
+    TOTAL                          438     92    79%
+
+    === 21 passed in 0.54 seconds ===
 
 ## Integration Testing with Autobahn
 

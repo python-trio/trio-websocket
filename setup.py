@@ -28,13 +28,15 @@ setup(
         'Intended Audience :: Developers',
         'Topic :: Software Development :: Libraries',
         'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ],
+    python_requires=">=3.6",
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
         'async_generator',
-        'attrs',
+        'attrs>=18.2',
         'ipaddress',
         'trio>=0.8',
         'wsaccel',
@@ -42,7 +44,13 @@ setup(
         'yarl'
     ],
     extras_require={
-        'dev': ['pytest', 'pytest-trio', 'trustme'],
+        'dev': [
+            'coveralls',
+            'pytest>=3.6',
+            'pytest-cov',
+            'pytest-trio',
+            'trustme',
+        ],
     },
     project_urls={
         'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',
