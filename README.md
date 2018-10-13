@@ -30,18 +30,20 @@ The following example demonstrates opening a WebSocket by URL. The connection
 may also be opened with `open_websocket(…)`, which takes a host, port, and
 resource as arguments.
 
-    import trio
-    from trio_websocket import open_websocket_url
+```python
+import trio
+from trio_websocket import open_websocket_url
 
 
-    async def main():
-        try:
-            async with open_websocket_url('ws://localhost/foo') as conn:
-                await conn.send_message('hello world!')
-        except OSError as ose:
-            logging.error('Connection attempt failed: %s', ose)
+async def main():
+    try:
+        async with open_websocket_url('ws://localhost/foo') as conn:
+            await conn.send_message('hello world!')
+    except OSError as ose:
+        logging.error('Connection attempt failed: %s', ose)
 
-    trio.run(main)
+trio.run(main)
+```
 
 A more detailed example is in `examples/client.py`. **Note:** if you want to run
 this example client with SSL, you'll need to install the `trustme` module from
@@ -55,22 +57,23 @@ A WebSocket server requires a bind address, a port, and a coroutine to handle
 incoming connections. This example demonstrates an "echo server" that replies
 to each incoming message with an identical outgoing message.
 
-    import trio
-    from trio_websocket import WebSocketServer, ConnectionClosed
+```python
+import trio
+from trio_websocket import serve_websocket, ConnectionClosed
 
-    async def main():
-        server = WebSocketServer(echo_server, '127.0.0.1', 8000, ssl_context=None)
-        await server.listen()
+async def echo_server(websocket):
+    while True:
+        try:
+            message = await websocket.get_message()
+            await websocket.send_message(message)
+        except ConnectionClosed:
+            break
 
-    async def echo_server(websocket):
-        while True:
-            try:
-                message = await websocket.get_message()
-                await websocket.send_message(message)
-            except ConnectionClosed:
-                break
+async def main():
+    await serve_websocket(echo_server, '127.0.0.1', 8000, ssl_context=None)
 
-    trio.run(main)
+trio.run(main)
+```
 
 A longer example is in `examples/server.py`. **See the note above about using
 SSL with the example client.**
