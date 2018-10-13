@@ -1,4 +1,3 @@
-import enum
 import itertools
 import logging
 import ssl
@@ -6,12 +5,11 @@ from functools import partial
 
 from async_generator import async_generator, yield_, asynccontextmanager
 import attr
-from ipaddress import ip_address, IPv4Address, IPv6Address
+from ipaddress import ip_address
 import trio
 import trio.abc
 import trio.ssl
 import wsproto.connection as wsconnection
-import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
 from yarl import URL
 

@@ -1,5 +1,7 @@
+.coverage
 .pytest_cache
 __pycache__
+coverage.xml
 dist
 examples/fake.*
 trio_websocket.egg-info
