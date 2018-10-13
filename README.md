@@ -55,9 +55,6 @@ to each incoming message with an identical outgoing message.
 import trio
 from trio_websocket import serve_websocket, ConnectionClosed
 
-async def main():
-    await serve_websocket(echo_server, '127.0.0.1', 8000, ssl_context=None)
-
 async def echo_server(websocket):
     while True:
         try:
@@ -65,6 +62,9 @@ async def echo_server(websocket):
             await websocket.send_message(message)
         except ConnectionClosed:
             break
+
+async def main():
+    await serve_websocket(echo_server, '127.0.0.1', 8000, ssl_context=None)
 
 trio.run(main)
 ```
