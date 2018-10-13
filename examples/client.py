@@ -54,10 +54,12 @@ async def main(args):
         ssl_context = None
     try:
         logging.debug('Connecting to WebSocket…')
-        async with open_websocket_url(args.url, ssl_context) as conn:
-            logging.debug('Connected!')
-            await handle_connection(conn)
-        logging.debug('Connection closed')
+        async with trio.open_nursery() as nursery:
+            async with open_websocket_url(args.url, ssl_context) as conn:
+                logging.debug('Connected!')
+                nursery.start_soon(handle_connection, conn)
+            logging.debug('Connection closed')
+            nursery.cancel_scope.cancel()
     except OSError as ose:
         logging.error('Connection attempt failed: %s', ose)
         return False
