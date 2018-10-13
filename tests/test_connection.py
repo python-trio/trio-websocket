@@ -1,35 +1,36 @@
 import functools
 
-import attr
 import pytest
-from trio_websocket import *
-import trio
 import trio.hazmat
 import trio.ssl
 import trio.testing
 import trustme
+from async_generator import async_generator, yield_
+from trio_websocket import *
 
 
 HOST = '127.0.0.1'
 RESOURCE = '/resource'
 
 @pytest.fixture
+@async_generator
 async def echo_server(nursery):
     ''' A server that reads one message, sends back the same message,
     then closes the connection. '''
     serve_fn = functools.partial(serve_websocket, echo_handler, HOST, 0,
         ssl_context=None)
     server = await nursery.start(serve_fn)
-    yield server
+    await yield_(server)
 
 
 @pytest.fixture
+@async_generator
 async def echo_conn(echo_server):
     ''' Return a client connection instance that is connected to an echo
     server. '''
     async with open_websocket(HOST, echo_server.port, RESOURCE, use_ssl=False) \
-        as conn:
-        yield conn
+            as conn:
+        await yield_(conn)
 
 
 async def echo_handler(conn):

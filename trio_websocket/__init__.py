@@ -1,17 +1,15 @@
-import enum
 import itertools
 import logging
 import ssl
 from functools import partial
 
-from async_generator import asynccontextmanager
+from async_generator import async_generator, yield_, asynccontextmanager
 import attr
-from ipaddress import ip_address, IPv4Address, IPv6Address
+from ipaddress import ip_address
 import trio
 import trio.abc
 import trio.ssl
 import wsproto.connection as wsconnection
-import wsproto.events as wsevents
 import wsproto.frame_protocol as wsframeproto
 from yarl import URL
 
@@ -23,6 +21,7 @@ logger = logging.getLogger('trio-websocket')
 
 
 @asynccontextmanager
+@async_generator
 async def open_websocket(host, port, resource, use_ssl):
     '''
     Open a WebSocket client connection to a host.
@@ -44,7 +43,7 @@ async def open_websocket(host, port, resource, use_ssl):
         connection = await connect_websocket(new_nursery, host, port, resource,
             use_ssl)
         async with connection:
-            yield connection
+            await yield_(connection)
 
 
 async def connect_websocket(nursery, host, port, resource, use_ssl):

@@ -14,7 +14,7 @@ implements the I/O using [Trio](https://trio.readthedocs.io/en/latest/).
 
 ## Installation
 
-To install from PyPI:
+`trio-websocket` requires Python v3.5 or greater. To install from PyPI:
 
     pip install trio-websocket
 

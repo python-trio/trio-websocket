@@ -5,12 +5,12 @@ here = Path(__file__).parent
 
 # Get version
 version = {}
-with open(here / "trio_websocket" / "version.py") as fp:
-    exec(fp.read(), version)
+with (here / "trio_websocket" / "version.py").open() as f:
+    exec(f.read(), version)
 
 
 # Get description
-with open(here / 'README.md', encoding='utf-8') as f:
+with (here / 'README.md').open(encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
@@ -28,10 +28,11 @@ setup(
         'Intended Audience :: Developers',
         'Topic :: Software Development :: Libraries',
         'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
     ],
-    python_requires=">=3.6",
+    python_requires=">=3.5",
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
