@@ -40,7 +40,7 @@ setup(
         'ipaddress',
         'trio>=0.8',
         'wsaccel',
-        'wsproto',
+        'wsproto>=0.12.0',
         'yarl'
     ],
     extras_require={
@@ -48,7 +48,7 @@ setup(
             'coveralls',
             'pytest>=3.6',
             'pytest-cov',
-            'pytest-trio',
+            'pytest-trio>=0.5.0',
             'trustme',
         ],
     },
