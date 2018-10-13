@@ -1,9 +1,7 @@
-import functools
+from functools import partial
 
 import pytest
-import trio.hazmat
-import trio.ssl
-import trio.testing
+import trio
 import trustme
 from async_generator import async_generator, yield_
 from trio_websocket import *
@@ -17,8 +15,7 @@ RESOURCE = '/resource'
 async def echo_server(nursery):
     ''' A server that reads one message, sends back the same message,
     then closes the connection. '''
-    serve_fn = functools.partial(serve_websocket, echo_handler, HOST, 0,
-        ssl_context=None)
+    serve_fn = partial(serve_websocket, echo_handler, HOST, 0, ssl_context=None)
     server = await nursery.start(serve_fn)
     await yield_(server)
 
@@ -123,7 +120,7 @@ async def test_serve_ssl(nursery):
 async def test_serve_handler_nursery(nursery):
     task = trio.hazmat.current_task()
     async with trio.open_nursery() as handler_nursery:
-        serve_with_nursery = functools.partial(serve_websocket, echo_handler,
+        serve_with_nursery = partial(serve_websocket, echo_handler,
             HOST, 0, None, handler_nursery=handler_nursery)
         server = await nursery.start(serve_with_nursery)
         port = server.port
@@ -241,7 +238,7 @@ async def test_wrap_server_stream(nursery):
             msg = await server.get_message()
             assert msg == 'Hello from client!'
         assert server.is_closed
-    serve_fn = functools.partial(trio.serve_tcp, handler, 0, host=HOST)
+    serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     listeners = await nursery.start(serve_fn)
     port = listeners[0].socket.getsockname()[1]
     async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
@@ -269,9 +266,24 @@ async def test_server_does_not_close_handshake(nursery):
             await stream.aclose()
             with pytest.raises(ConnectionClosed):
                 await server.send_message('Hello from client!')
-    serve_fn = functools.partial(trio.serve_tcp, handler, 0, host=HOST)
+    serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     listeners = await nursery.start(serve_fn)
     port = listeners[0].socket.getsockname()[1]
     async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
         with pytest.raises(ConnectionClosed):
             await client.get_message()
+
+
+async def test_server_handler_exit(nursery, autojump_clock):
+    async def handler(connection):
+        await trio.sleep(1)
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    # connection should close when server handler exists
+    with trio.fail_after(2):
+        async with open_websocket(
+                HOST, server.port, '/', use_ssl=False) as connection:
+            with pytest.raises(ConnectionClosed):
+                await connection.get_message()
