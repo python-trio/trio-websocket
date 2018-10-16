@@ -297,6 +297,36 @@ class CloseReason:
             self.code, self.name, self.reason)
 
 
+class Future:
+    ''' Represents a future value. '''
+    def __init__(self):
+        ''' Constructor. '''
+        self._event = trio.Event()
+        self._value = None
+
+    def set(self, value):
+        '''
+        Set the future's value.
+
+        This can only be called once.
+
+        :param value: The value to set.
+        '''
+        if self._event.is_set():
+            raise Exception('This future is already set.')
+        self._value = value
+        self._event.set()
+
+    async def wait(self):
+        '''
+        Wait for the future to have a value.
+
+        :returns: The future's value.
+        '''
+        await self._event.wait()
+        return self._value
+
+
 class WebSocketConnection(trio.abc.AsyncResource):
     ''' A WebSocket connection. '''
 
@@ -320,6 +350,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         self._path = path
         self._put_channel, self._get_channel = open_channel(0)
+        self._pong_future = Future()
         # Set once the WebSocket open handshake takes place, i.e.
         # ConnectionRequested for server or ConnectedEstablished for client.
         self._open_handshake = trio.Event()
@@ -398,15 +429,15 @@ class WebSocketConnection(trio.abc.AsyncResource):
             raise ConnectionClosed(self._close_reason) from None
         return message
 
-    async def ping(self, payload):
+    async def ping(self, payload=None):
         '''
         Send WebSocket ping to peer.
 
-        Does not wait for pong reply. (Is this the right behavior? This may
-        change in the future.) Raises ``ConnectionClosed`` if the connection is
-        closed.
+        Does not wait for pong reply. Use the ``wait_pong()`` method if you
+        want to wait for the pong.
 
-        :param payload: str or bytes payloads
+        :param payload:
+        :type payload: str, bytes, or None
         :raises ConnectionClosed: if connection is closed
         '''
         if self._close_reason:
@@ -427,6 +458,16 @@ class WebSocketConnection(trio.abc.AsyncResource):
             raise ConnectionClosed(self._close_reason)
         self._wsproto.send_data(message)
         await self._write_pending()
+
+    async def wait_pong(self):
+        '''
+        Wait for a pong.
+
+        :returns: The pong's payload.
+        :rtype: bytes
+        '''
+        value = await self._pong_future.wait()
+        return value
 
     def _abort_web_socket(self):
         '''
@@ -537,18 +578,23 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param event:
         '''
+        logger.debug('conn#%d ping %r', self._id, event.payload)
         await self._write_pending()
 
     async def _handle_pong_received_event(self, event):
         '''
         Handle a PongReceived event.
 
-        Currently we don't do anything special for a Pong frame, but this may
-        change in the future. This handler is here as a placeholder.
+        This will send the pong's payload to all tasks that are waiting for
+        ``wait_pong()``. This method is async even though it never awaits,
+        because all of the other event handlers are async and this simplifies
+        event dispatch.
 
         :param event:
         '''
         logger.debug('conn#%d pong %r', self._id, event.payload)
+        self._pong_future.set(event.payload)
+        self._pong_future = Future()
 
     async def _reader_task(self):
         ''' A background task that reads network data and generates events. '''

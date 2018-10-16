@@ -207,6 +207,16 @@ async def test_client_send_and_receive(echo_conn):
         assert received_msg == 'This is a test message.'
 
 
+async def test_client_ping_pong(echo_conn):
+    async with echo_conn:
+        await echo_conn.ping(b'test-payload-1')
+        pong1 = await echo_conn.wait_pong()
+        assert pong1 == b'test-payload-1'
+        await echo_conn.ping(b'test-payload-2')
+        pong2 = await echo_conn.wait_pong()
+        assert pong2 == b'test-payload-2'
+
+
 async def test_client_default_close(echo_conn):
     async with echo_conn:
         assert not echo_conn.is_closed
