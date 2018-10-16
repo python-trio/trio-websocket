@@ -32,6 +32,8 @@ def commands():
 def parse_args():
     ''' Parse command line arguments. '''
     parser = argparse.ArgumentParser(description='Example trio-websocket client')
+    parser.add_argument('--heartbeat', action='store_true',
+        help='Create a heartbeat task')
     parser.add_argument('url', help='WebSocket URL to connect to')
     return parser.parse_args()
 
@@ -53,23 +55,40 @@ async def main(args):
     try:
         logging.debug('Connecting to WebSocket…')
         async with open_websocket_url(args.url, ssl_context) as conn:
-            await handle_connection(conn)
+            await handle_connection(conn, args.heartbeat)
     except OSError as ose:
         logging.error('Connection attempt failed: %s', ose)
         return False
 
 
-async def handle_connection(ws):
+async def handle_connection(ws, use_heartbeat):
     ''' Handle the connection. '''
     logging.debug('Connected!')
     try:
         async with trio.open_nursery() as nursery:
+            if use_heartbeat:
+                nursery.start_soon(heartbeat, ws, 1, 15)
             nursery.start_soon(get_commands, ws)
             nursery.start_soon(get_messages, ws)
     except ConnectionClosed as cc:
         reason = '<no reason>' if cc.reason.reason is None else '"{}"'.format(
             cc.reason.reason)
         print('Closed: {}/{} {}'.format(cc.reason.code, cc.reason.name, reason))
+
+
+async def heartbeat(ws, timeout, interval):
+    '''
+    Send periodic pings on WebSocket ``ws``.
+
+    After sending a ping, wait up to ``timeout`` seconds to receive a pong
+    before raising an exception. If a pong is received, then wait ``interval``
+    seconds before sending the next ping.
+    '''
+    while True:
+        await ws.ping(b'heartbeat')
+        with trio.fail_after(timeout):
+            await ws.wait_pong()
+        await trio.sleep(interval)
 
 
 async def get_commands(ws):
