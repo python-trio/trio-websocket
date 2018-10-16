@@ -17,7 +17,6 @@ import yarl
 
 
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger()
 here = pathlib.Path(__file__).parent
 
 
@@ -27,7 +26,6 @@ def commands():
     print('send <MESSAGE>   -> send message')
     print('ping <PAYLOAD>   -> send ping with payload')
     print('close [<REASON>] -> politely close connection with optional reason')
-    print('[ctrl+D]         -> rudely close connection')
     print()
 
 
@@ -55,39 +53,54 @@ async def main(args):
     try:
         logging.debug('Connecting to WebSocket…')
         async with open_websocket_url(args.url, ssl_context) as conn:
-            logging.debug('Connected!')
             await handle_connection(conn)
-        logging.debug('Connection closed')
     except OSError as ose:
         logging.error('Connection attempt failed: %s', ose)
         return False
 
 
-async def handle_connection(connection):
+async def handle_connection(ws):
     ''' Handle the connection. '''
+    logging.debug('Connected!')
+    try:
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(get_commands, ws)
+            nursery.start_soon(get_messages, ws)
+    except ConnectionClosed as cc:
+        reason = '<no reason>' if cc.reason.reason is None else '"{}"'.format(
+            cc.reason.reason)
+        print('Closed: {}/{} {}'.format(cc.reason.code, cc.reason.name, reason))
+
+
+async def get_commands(ws):
+    ''' In a loop: get a command from the user and execute it. '''
     while True:
-        try:
-            logger.debug('top of loop')
-            await trio.sleep(0.1) # allow time for connection logging
-            cmd = await trio.run_sync_in_worker_thread(input, 'cmd> ',
-                cancellable=True)
-            if cmd.startswith('ping '):
-                await connection.ping(cmd[5:].encode('utf8'))
-            elif cmd.startswith('send '):
-                await connection.send_message(cmd[5:])
-                message = await connection.get_message()
-                print('response> {}'.format(message))
-            elif cmd.startswith('close'):
-                try:
-                    reason = cmd[6:]
-                except IndexError:
-                    reason = None
-                await connection.aclose(code=1000, reason=reason)
-                break
+        cmd = await trio.run_sync_in_worker_thread(input, 'cmd> ',
+            cancellable=True)
+        if cmd.startswith('ping'):
+            payload = cmd[5:].encode('utf8') or None
+            await ws.ping(payload)
+        elif cmd.startswith('send'):
+            message = cmd[5:] or None
+            if message is None:
+                logging.error('The "send" command requires a message.')
             else:
-                commands()
-        except ConnectionClosed:
+                await ws.send_message(message)
+        elif cmd.startswith('close'):
+            reason = cmd[6:] or None
+            await ws.aclose(code=1000, reason=reason)
             break
+        else:
+            commands()
+        # Allow time to receive response and log print logs:
+        await trio.sleep(0.25)
+
+
+async def get_messages(ws):
+    ''' In a loop: get a WebSocket message and print it out. '''
+    while True:
+        message = await ws.get_message()
+        print('message: {}'.format(message))
 
 
 if __name__ == '__main__':
