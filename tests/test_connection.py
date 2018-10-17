@@ -1,10 +1,23 @@
 from functools import partial
 
+import attr
 import pytest
 import trio
 import trustme
 from async_generator import async_generator, yield_
-from trio_websocket import *
+
+from trio_websocket import (
+    connect_websocket,
+    connect_websocket_url,
+    ConnectionClosed,
+    ListenPort,
+    open_websocket,
+    open_websocket_url,
+    serve_websocket,
+    WebSocketServer,
+    wrap_client_stream,
+    wrap_server_stream
+)
 
 
 HOST = '127.0.0.1'
@@ -285,5 +298,6 @@ async def test_server_handler_exit(nursery, autojump_clock):
     with trio.fail_after(2):
         async with open_websocket(
                 HOST, server.port, '/', use_ssl=False) as connection:
-            with pytest.raises(ConnectionClosed):
+            with pytest.raises(ConnectionClosed) as e:
                 await connection.get_message()
+                assert e.reason.name == 'NORMAL_CLOSURE'
