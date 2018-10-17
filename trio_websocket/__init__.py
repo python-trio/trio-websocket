@@ -744,5 +744,7 @@ class WebSocketServer:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
             connection = WebSocketConnection(stream, wsproto)
             nursery.start_soon(connection._reader_task)
-            await connection._open_handshake.wait()
-            nursery.start_soon(self._handler, connection)
+            async with connection:
+                await connection._open_handshake.wait()
+                await self._handler(connection)
+            nursery.cancel_scope.cancel()
