@@ -169,3 +169,14 @@ In the second terminal, you will run the Docker image.
 If a test fails, `server.py` does not support the same `debug_cases` argument as
 `client.py`, but you can modify `fuzzingclient.json` to specify a subset of
 cases to run, e.g. `3.*` to run all test cases in section 3.
+
+## Release Process
+
+* Remove `-dev` suffix from `version.py`.
+* Commit and push version change.
+* Create and push tag, e.g. `git tag 1.0.0 && git push origin 1.0.0`.
+* Clean build directory: `rm -fr dist`
+* Build package: `python setup.py sdist`
+* Upload to PyPI: `twine upload dist/*`
+* Increment version and add `-dev` suffix.
+* Commit and push version change.
