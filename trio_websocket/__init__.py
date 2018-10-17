@@ -425,10 +425,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 format(payload))
         if payload is None:
             payload = struct.pack('!I', random.getrandbits(32))
-        self._pings[payload] = trio.Event()
+        event = trio.Event()
+        self._pings[payload] = event
         self._wsproto.ping(payload)
         await self._write_pending()
-        await self._pings[payload].wait()
+        await event.wait()
 
     async def pong(self, payload=None):
         '''
@@ -589,13 +590,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # We received a pong that doesn't match any in-flight pongs. Nothing
             # we can do with it, so ignore it.
             return
-        key, event = self._pings.popitem(0)
-        while key != payload:
-            logger.debug('conn#%d pong [skipped] %r', self._id, key)
-            event.set()
+        while self._pings:
             key, event = self._pings.popitem(0)
-        logger.debug('conn#%d pong %r', self._id, key)
-        event.set()
+            skipped = ' [skipped] ' if payload != key else ' '
+            logger.debug('conn#%d pong%s%r', self._id, skipped, key)
+            event.set()
+            if payload == key:
+                break
 
     async def _reader_task(self):
         ''' A background task that reads network data and generates events. '''
@@ -624,7 +625,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                         event_type)
                     await handler(event)
                 except KeyError:
-                    logger.warning('Received unknown event type: %s',
+                    logger.warning('Received unknown event type: "%s"',
                         event_type)
 
             # Get network data.

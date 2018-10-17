@@ -89,9 +89,21 @@ feature.
 ```python
 async def heartbeat(ws, timeout, interval):
     '''
-    Send periodic pings on WebSocket ``ws``. Wait up to ``timeout`` seconds to
-    receive a pong before raising an exception. If a pong is received, then wait
-    ``interval`` seconds before sending the next ping.
+    Send periodic pings on WebSocket ``ws``.
+
+    Wait up to ``timeout`` seconds to send a ping and receive a pong. Raises
+    ``TooSlowError`` if the timeout is exceeded. If a pong is received, then
+    wait ``interval`` seconds before sending the next ping.
+
+    This function runs until cancelled.
+
+    :param ws: A WebSocket to send heartbeat pings on.
+    :param float timeout: Timeout in seconds.
+    :param float interval: Interval between receiving pong and sending next
+        ping, in seconds.
+    :raises: ``ConnectionClosed`` if ``ws`` is closed.
+    :raises: ``TooSlowError`` if the timeout expires.
+    :returns: This function runs until cancelled.
     '''
     while True:
         with trio.fail_after(timeout):
