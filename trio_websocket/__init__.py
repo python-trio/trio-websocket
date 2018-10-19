@@ -353,6 +353,20 @@ class WebSocketConnection(trio.abc.AsyncResource):
     def path(self):
         """Returns the path from the HTTP handshake."""
         return self._path
+    
+    @property
+    def local_address(self):
+        """
+        Local address of the connection. This is a ``(host, port)`` tuple.
+        """
+        return self._stream.socket.getsockname()
+
+    @property
+    def remote_address(self):
+        """
+        Remote address of the connection. This is a ``(host, port)`` tuple.
+        """
+        return self._stream.socket.getpeername()
 
     async def aclose(self, code=1000, reason=None):
         '''
