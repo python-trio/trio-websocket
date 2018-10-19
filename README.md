@@ -37,8 +37,8 @@ from trio_websocket import open_websocket_url
 
 async def main():
     try:
-        async with open_websocket_url('ws://localhost/foo') as conn:
-            await conn.send_message('hello world!')
+        async with open_websocket_url('ws://localhost/foo') as ws:
+            await ws.send_message('hello world!')
     except OSError as ose:
         logging.error('Connection attempt failed: %s', ose)
 
@@ -61,11 +61,12 @@ to each incoming message with an identical outgoing message.
 import trio
 from trio_websocket import serve_websocket, ConnectionClosed
 
-async def echo_server(websocket):
+async def echo_server(request):
+    ws = await request.accept()
     while True:
         try:
-            message = await websocket.get_message()
-            await websocket.send_message(message)
+            message = await ws.get_message()
+            await ws.send_message(message)
         except ConnectionClosed:
             break
 
