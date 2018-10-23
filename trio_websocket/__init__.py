@@ -1,7 +1,10 @@
+from collections import OrderedDict
+from functools import partial
 import itertools
 import logging
+import random
 import ssl
-from functools import partial
+import struct
 
 from async_generator import async_generator, yield_, asynccontextmanager
 import attr
@@ -320,6 +323,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         self._path = path
         self._put_channel, self._get_channel = open_channel(0)
+        self._pings = OrderedDict()
         # Set once the WebSocket open handshake takes place, i.e.
         # ConnectionRequested for server or ConnectedEstablished for client.
         self._open_handshake = trio.Event()
@@ -398,13 +402,38 @@ class WebSocketConnection(trio.abc.AsyncResource):
             raise ConnectionClosed(self._close_reason) from None
         return message
 
-    async def ping(self, payload):
+    async def ping(self, payload=None):
         '''
-        Send WebSocket ping to peer.
+        Send WebSocket ping to peer and wait for a correspoding pong.
 
-        Does not wait for pong reply. (Is this the right behavior? This may
-        change in the future.) Raises ``ConnectionClosed`` if the connection is
-        closed.
+        Each ping is matched to its expected pong by its payload value. An
+        exception is raised if you call ping with a ``payload`` value equal to
+        an existing in-flight ping. If the remote endpoint recieves multiple
+        pings, it is allowed to send a single pong. Therefore, the order of
+        calls to ``ping()`` is tracked, and a pong will wake up its
+        corresponding ping _as well as any earlier pings_.
+
+        :param payload: The payload to send. If ``None`` then a random value is
+            created.
+        :type payload: str, bytes, or None
+        :raises ConnectionClosed: if connection is closed
+        '''
+        if self._close_reason:
+            raise ConnectionClosed(self._close_reason)
+        if payload in self._pings:
+            raise Exception('Payload value {} is already in flight.'.
+                format(payload))
+        if payload is None:
+            payload = struct.pack('!I', random.getrandbits(32))
+        event = trio.Event()
+        self._pings[payload] = event
+        self._wsproto.ping(payload)
+        await self._write_pending()
+        await event.wait()
+
+    async def pong(self, payload=None):
+        '''
+        Send an unsolicted pong.
 
         :param payload: str or bytes payloads
         :raises ConnectionClosed: if connection is closed
@@ -537,18 +566,37 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param event:
         '''
+        logger.debug('conn#%d ping %r', self._id, event.payload)
         await self._write_pending()
 
     async def _handle_pong_received_event(self, event):
         '''
         Handle a PongReceived event.
 
-        Currently we don't do anything special for a Pong frame, but this may
-        change in the future. This handler is here as a placeholder.
+        When a pong is received, check if we have any ping requests waiting for
+        this pong response. If the remote endpoint skipped any earlier pings,
+        then we wake up those skipped pings, too.
+
+        This function is async even though it never awaits, because the other
+        event handlers are async, too, and event dispatch would be more
+        complicated if some handlers were sync.
 
         :param event:
         '''
-        logger.debug('conn#%d pong %r', self._id, event.payload)
+        payload = bytes(event.payload)
+        try:
+            event = self._pings[payload]
+        except KeyError:
+            # We received a pong that doesn't match any in-flight pongs. Nothing
+            # we can do with it, so ignore it.
+            return
+        while self._pings:
+            key, event = self._pings.popitem(0)
+            skipped = ' [skipped] ' if payload != key else ' '
+            logger.debug('conn#%d pong%s%r', self._id, skipped, key)
+            event.set()
+            if payload == key:
+                break
 
     async def _reader_task(self):
         ''' A background task that reads network data and generates events. '''
@@ -577,7 +625,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                         event_type)
                     await handler(event)
                 except KeyError:
-                    logger.warning('Received unknown event type: %s',
+                    logger.warning('Received unknown event type: "%s"',
                         event_type)
 
             # Get network data.

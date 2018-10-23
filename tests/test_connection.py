@@ -217,6 +217,51 @@ async def test_client_send_and_receive(echo_conn):
         assert received_msg == 'This is a test message.'
 
 
+async def test_client_ping(echo_conn):
+    async with echo_conn:
+        await echo_conn.ping(b'A')
+    with pytest.raises(ConnectionClosed):
+        await echo_conn.ping(b'B')
+
+
+async def test_client_ping_two_payloads(echo_conn):
+    pong_count = 0
+    async def ping_and_count():
+        nonlocal pong_count
+        await echo_conn.ping()
+        pong_count += 1
+    async with echo_conn:
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(ping_and_count)
+            nursery.start_soon(ping_and_count)
+    assert pong_count == 2
+
+
+async def test_client_ping_same_payload(echo_conn):
+    # This test verifies that two tasks can't ping with the same payload at the
+    # same time. One of them should succeed and the other should get an
+    # exception.
+    exc_count = 0
+    async def ping_and_catch():
+        nonlocal exc_count
+        try:
+            await echo_conn.ping(b'A')
+        except Exception:
+            exc_count += 1
+    async with echo_conn:
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(ping_and_catch)
+            nursery.start_soon(ping_and_catch)
+    assert exc_count == 1
+
+
+async def test_client_pong(echo_conn):
+    async with echo_conn:
+        await echo_conn.pong(b'A')
+    with pytest.raises(ConnectionClosed):
+        await echo_conn.pong(b'B')
+
+
 async def test_client_default_close(echo_conn):
     async with echo_conn:
         assert not echo_conn.is_closed
