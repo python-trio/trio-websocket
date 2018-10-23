@@ -49,13 +49,14 @@ async def main(args):
     await serve_websocket(handler, host, args.port, ssl_context)
 
 
-async def handler(websocket):
+async def handler(request):
     ''' Reverse incoming websocket messages and send them back. '''
-    logging.info('Handler starting (path=%s)' % websocket.path)
+    logging.info('Handler starting on path "%s"' % request.url.path_qs)
+    ws = await request.accept()
     while True:
         try:
-            message = await websocket.get_message()
-            await websocket.send_message(message[::-1])
+            message = await ws.get_message()
+            await ws.send_message(message[::-1])
         except ConnectionClosed:
             logging.info('Connection closed')
             break

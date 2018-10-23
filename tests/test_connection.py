@@ -28,7 +28,8 @@ RESOURCE = '/resource'
 async def echo_server(nursery):
     ''' A server that reads one message, sends back the same message,
     then closes the connection. '''
-    serve_fn = partial(serve_websocket, echo_handler, HOST, 0, ssl_context=None)
+    serve_fn = partial(serve_websocket, echo_request_handler, HOST, 0,
+        ssl_context=None)
     server = await nursery.start(serve_fn)
     await yield_(server)
 
@@ -38,12 +39,20 @@ async def echo_server(nursery):
 async def echo_conn(echo_server):
     ''' Return a client connection instance that is connected to an echo
     server. '''
-    async with open_websocket(HOST, echo_server.port, RESOURCE, use_ssl=False) \
-            as conn:
+    async with open_websocket(HOST, echo_server.port, RESOURCE,
+            use_ssl=False) as conn:
         await yield_(conn)
 
 
-async def echo_handler(conn):
+async def echo_request_handler(request):
+    '''
+    Accept incoming request and then pass off to echo connection handler.
+    '''
+    conn = await request.accept()
+    await echo_conn_handler(conn)
+
+
+async def echo_conn_handler(conn):
     ''' A connection handler that reads one message, sends back the same
     message, then exits. '''
     try:
@@ -95,14 +104,16 @@ async def test_listen_port_ipv6():
 
 
 async def test_server_has_listeners(nursery):
-    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
+    server = await nursery.start(serve_websocket, echo_request_handler, HOST, 0,
+        None)
     assert len(server.listeners) > 0
     assert isinstance(server.listeners[0], ListenPort)
 
 
 async def test_serve(nursery):
     task = trio.hazmat.current_task()
-    server = await nursery.start(serve_websocket, echo_handler, HOST, 0, None)
+    server = await nursery.start(serve_websocket, echo_request_handler, HOST, 0,
+        None)
     port = server.port
     assert server.port != 0
     # The server nursery begins with one task (server.listen).
@@ -123,17 +134,19 @@ async def test_serve_ssl(nursery):
     ca.configure_trust(client_context)
     cert = ca.issue_server_cert(HOST)
     cert.configure_cert(server_context)
-    server = await nursery.start(serve_websocket, echo_handler, HOST, 0,
+
+    server = await nursery.start(serve_websocket, echo_request_handler, HOST, 0,
         server_context)
     port = server.port
-    async with open_websocket(HOST, port, RESOURCE, client_context) as conn:
+    async with open_websocket(HOST, port, RESOURCE, use_ssl=client_context
+            ) as conn:
         assert not conn.is_closed
 
 
 async def test_serve_handler_nursery(nursery):
     task = trio.hazmat.current_task()
     async with trio.open_nursery() as handler_nursery:
-        serve_with_nursery = partial(serve_websocket, echo_handler,
+        serve_with_nursery = partial(serve_websocket, echo_request_handler,
             HOST, 0, None, handler_nursery=handler_nursery)
         server = await nursery.start(serve_with_nursery)
         port = server.port
@@ -149,12 +162,12 @@ async def test_serve_handler_nursery(nursery):
 async def test_serve_with_zero_listeners(nursery):
     task = trio.hazmat.current_task()
     with pytest.raises(ValueError):
-        server = WebSocketServer(echo_handler, [])
+        server = WebSocketServer(echo_request_handler, [])
 
 
 async def test_serve_non_tcp_listener(nursery):
     listeners = [MemoryListener()]
-    server = WebSocketServer(echo_handler, listeners)
+    server = WebSocketServer(echo_request_handler, listeners)
     await nursery.start(server.run)
     assert len(server.listeners) == 1
     with pytest.raises(RuntimeError):
@@ -165,7 +178,7 @@ async def test_serve_non_tcp_listener(nursery):
 async def test_serve_multiple_listeners(nursery):
     listener1 = (await trio.open_tcp_listeners(0, host=HOST))[0]
     listener2 = MemoryListener()
-    server = WebSocketServer(echo_handler, [listener1, listener2])
+    server = WebSocketServer(echo_request_handler, [listener1, listener2])
     await nursery.start(server.run)
     assert len(server.listeners) == 2
     with pytest.raises(RuntimeError):
@@ -211,6 +224,21 @@ async def test_client_connect_url(echo_server, nursery):
     url = 'ws://{}:{}{}'.format(HOST, echo_server.port, RESOURCE)
     conn = await connect_websocket_url(nursery, url)
     assert not conn.is_closed
+
+
+async def test_handshake_subprotocol(nursery):
+    async def handler(request):
+        assert request.proposed_subprotocols == ('chat', 'file')
+        assert request.subprotocol is None
+        request.subprotocol = 'chat'
+        assert request.subprotocol == 'chat'
+        server_ws = await request.accept()
+        assert server_ws.subprotocol == 'chat'
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+        subprotocols=('chat', 'file')) as client_ws:
+        assert client_ws.subprotocol == 'chat'
 
 
 async def test_client_send_and_receive(echo_conn):
@@ -293,12 +321,13 @@ async def test_wrap_client_stream(echo_server, nursery):
 
 async def test_wrap_server_stream(nursery):
     async def handler(stream):
-        server = await wrap_server_stream(nursery, stream)
-        async with server:
-            assert not server.is_closed
-            msg = await server.get_message()
+        request = await wrap_server_stream(nursery, stream)
+        server_ws = await request.accept()
+        async with server_ws:
+            assert not server_ws.is_closed
+            msg = await server_ws.get_message()
             assert msg == 'Hello from client!'
-        assert server.is_closed
+        assert server_ws.is_closed
     serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     listeners = await nursery.start(serve_fn)
     port = listeners[0].socket.getsockname()[1]
@@ -307,26 +336,28 @@ async def test_wrap_server_stream(nursery):
 
 
 async def test_client_does_not_close_handshake(nursery):
-    async def handler(server):
+    async def handler(request):
+        server_ws = await request.accept()
         with pytest.raises(ConnectionClosed):
-            await server.get_message()
+            await server_ws.get_message()
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     port = server.port
     stream = await trio.open_tcp_stream(HOST, server.port)
-    client = await wrap_client_stream(nursery, stream, HOST, RESOURCE)
-    async with client:
+    client_ws = await wrap_client_stream(nursery, stream, HOST, RESOURCE)
+    async with client_ws:
         await stream.aclose()
         with pytest.raises(ConnectionClosed):
-            await client.send_message('Hello from client!')
+            await client_ws.send_message('Hello from client!')
 
 
 async def test_server_does_not_close_handshake(nursery):
     async def handler(stream):
-        server = await wrap_server_stream(nursery, stream)
-        async with server:
+        request = await wrap_server_stream(nursery, stream)
+        server_ws = await request.accept()
+        async with server_ws:
             await stream.aclose()
             with pytest.raises(ConnectionClosed):
-                await server.send_message('Hello from client!')
+                await server_ws.send_message('Hello from client!')
     serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     listeners = await nursery.start(serve_fn)
     port = listeners[0].socket.getsockname()[1]
@@ -336,7 +367,8 @@ async def test_server_does_not_close_handshake(nursery):
 
 
 async def test_server_handler_exit(nursery, autojump_clock):
-    async def handler(connection):
+    async def handler(request):
+        server_ws = await request.accept()
         await trio.sleep(1)
 
     server = await nursery.start(

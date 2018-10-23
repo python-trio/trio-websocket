@@ -25,7 +25,7 @@ logger = logging.getLogger('trio-websocket')
 
 @asynccontextmanager
 @async_generator
-async def open_websocket(host, port, resource, use_ssl):
+async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None):
     '''
     Open a WebSocket client connection to a host.
 
@@ -41,15 +41,18 @@ async def open_websocket(host, port, resource, use_ssl):
     :param int port: the port to connect to
     :param str resource: the resource a.k.a. path
     :param use_ssl: a bool or SSLContext
+    :param subprotocols: An iterable of strings representing preferred
+        subprotocols.
     '''
     async with trio.open_nursery() as new_nursery:
         connection = await connect_websocket(new_nursery, host, port, resource,
-            use_ssl)
+            use_ssl=use_ssl, subprotocols=subprotocols)
         async with connection:
             await yield_(connection)
 
 
-async def connect_websocket(nursery, host, port, resource, use_ssl):
+async def connect_websocket(nursery, host, port, resource, *, use_ssl,
+    subprotocols=None):
     '''
     Return a WebSocket client connection to a host.
 
@@ -64,6 +67,8 @@ async def connect_websocket(nursery, host, port, resource, use_ssl):
     :param str resource: the resource a.k.a. path
     :param use_ssl: a bool or SSLContext
     :rtype: WebSocketConnection
+    :param subprotocols: An iterable of strings representing preferred
+        subprotocols.
     '''
     if use_ssl == True:
         ssl_context = ssl.create_default_context()
@@ -86,14 +91,14 @@ async def connect_websocket(nursery, host, port, resource, use_ssl):
     else:
         host_header = '{}:{}'.format(host, port)
     wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
-        host=host_header, resource=resource)
+        host=host_header, resource=resource, subprotocols=subprotocols)
     connection = WebSocketConnection(stream, wsproto, path=resource)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
     return connection
 
 
-def open_websocket_url(url, ssl_context=None):
+def open_websocket_url(url, ssl_context=None, *, subprotocols=None):
     '''
     Open a WebSocket client connection to a URL.
 
@@ -107,12 +112,16 @@ def open_websocket_url(url, ssl_context=None):
 
     :param str url: a WebSocket URL
     :param ssl_context: optional ``SSLContext`` used for ``wss:`` URLs
+    :param subprotocols: An iterable of strings representing preferred
+        subprotocols.
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
-    return open_websocket(host, port, resource, ssl_context)
+    return open_websocket(host, port, resource, use_ssl=ssl_context,
+        subprotocols=subprotocols)
 
 
-async def connect_websocket_url(nursery, url, ssl_context=None):
+async def connect_websocket_url(nursery, url, ssl_context=None, *,
+    subprotocols=None):
     '''
     Return a WebSocket client connection to a URL.
 
@@ -128,9 +137,12 @@ async def connect_websocket_url(nursery, url, ssl_context=None):
     :param ssl_context: optional ``SSLContext`` used for ``wss:`` URLs
     :param nursery: a Trio nursery to run background tasks in
     :rtype: WebSocketConnection
+    :param subprotocols: An iterable of strings representing preferred
+        subprotocols.
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
-    return await connect_websocket(nursery, host, port, resource, ssl_context)
+    return await connect_websocket(nursery, host, port, resource,
+        use_ssl=ssl_context, subprotocols=subprotocols)
 
 
 def _url_to_host(url, ssl_context):
@@ -155,7 +167,8 @@ def _url_to_host(url, ssl_context):
     return url.host, url.port, url.path_qs, ssl_context
 
 
-async def wrap_client_stream(nursery, stream, host, resource):
+async def wrap_client_stream(nursery, stream, host, resource, *,
+    subprotocols=None):
     '''
     Wrap an arbitrary stream in a client-side ``WebSocketConnection``.
 
@@ -167,10 +180,12 @@ async def wrap_client_stream(nursery, stream, host, resource):
     :param str host: A host string that will be sent in the ``Host:`` header.
     :param str resource: A resource string, i.e. the path component to be
         accessed on the server.
+    :param subprotocols: An iterable of strings representing preferred
+        subprotocols.
     :rtype: WebSocketConnection
     '''
     wsproto = wsconnection.WSConnection(wsconnection.CLIENT, host=host,
-        resource=resource)
+        resource=resource, subprotocols=subprotocols)
     connection = WebSocketConnection(stream, wsproto, path=resource)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
@@ -179,7 +194,11 @@ async def wrap_client_stream(nursery, stream, host, resource):
 
 async def wrap_server_stream(nursery, stream):
     '''
-    Wrap an arbitrary stream in a server-side ``WebSocketConnection``.
+    Wrap an arbitrary stream in a server-side WebSocket.
+
+    The object returned is a ``WebSocketRequest``, which indicates the client's
+    proposed handshake. Call ``accept()`` on this object to obtain a
+    ``WebSocketConnection``.
 
     This is a low-level function only needed in rare cases. Most users should
     call ``serve_websocket()`.
@@ -187,13 +206,13 @@ async def wrap_server_stream(nursery, stream):
     :param nursery: A Trio nursery to run background tasks in.
     :param stream: A Trio stream to be wrapped.
     :param task_status: part of Trio nursery start protocol
-    :rtype: WebSocketConnection
+    :rtype: WebSocketRequest
     '''
     wsproto = wsconnection.WSConnection(wsconnection.SERVER)
     connection = WebSocketConnection(stream, wsproto)
     nursery.start_soon(connection._reader_task)
-    await connection._open_handshake.wait()
-    return connection
+    request = await connection._get_request()
+    return request
 
 
 async def serve_websocket(handler, host, port, ssl_context, *,
@@ -299,18 +318,129 @@ class CloseReason:
             self.code, self.name, self.reason)
 
 
+class Future:
+    ''' Represents a value that will be available in the future. '''
+    def __init__(self):
+        ''' Constructor. '''
+        self._value = None
+        self._value_event = trio.Event()
+
+    def set_value(self, value):
+        '''
+        Set a value, which will notify any waiters.
+
+        :param value:
+        '''
+        self._value = value
+        self._value_event.set()
+
+    async def wait_value(self):
+        '''
+        Wait for this future to have a value, then return it.
+
+        :returns: The value set by ``set_value()``.
+        '''
+        await self._value_event.wait()
+        return self._value
+
+
+class WebSocketRequest:
+    '''
+    Represents a handshake presented by a client to a server.
+
+    The server may modify the handshake or leave it as is. The server should
+    call ``accept()`` to finish the handshake and obtain a connection object.
+    '''
+    def __init__(self, accept_fn, event):
+        '''
+        Constructor.
+
+        :param accept_fn: A function to call that will finish the handshake and
+            return a ``WebSocketSconnection``.
+        :type event: wsproto.events.ConnectionRequested
+        '''
+        self._accept_fn = accept_fn
+        self._event = event
+        self._subprotocol = None
+
+    @property
+    def headers(self):
+        '''
+        A list of headers represented as (name, value) pairs.
+
+        :rtype: list
+        '''
+        return self._event.h11request.headers
+
+    @property
+    def proposed_subprotocols(self):
+        '''
+        A tuple of protocols proposed by the client.
+
+        :rtype: tuple[str]
+        '''
+        return tuple(self._event.proposed_subprotocols)
+
+    @property
+    def subprotocol(self):
+        '''
+        The selected protocol. Defaults to ``None``.
+
+        :rtype: str or None
+        '''
+        return self._subprotocol
+
+    @subprotocol.setter
+    def subprotocol(self, value):
+        '''
+        Set the selected protocol.
+
+        :type value: str or None
+        '''
+        self._subprotocol = value
+
+    @property
+    def url(self):
+        '''
+        The requested URL. Typically this URL does not contain a scheme, host,
+        or port.
+
+        :rtype yarl.URL:
+        '''
+        return URL(self._event.h11request.target.decode('ascii'))
+
+
+    async def accept(self):
+        '''
+        Finish the handshake with the terms contained in this request and
+        return a connection object.
+
+        :rtype: WebSocketConnection
+        '''
+        return await self._accept_fn(self)
+
+
 class WebSocketConnection(trio.abc.AsyncResource):
     ''' A WebSocket connection. '''
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto, path=None):
+    def __init__(self, stream, wsproto, *, path=None):
         '''
         Constructor.
 
+        Generally speaking, users are discouraged from directly instantiating a
+        ``WebSocketConnection`` and should instead use one of the convenience
+        functions in this module, e.g. ``open_websocket()`` or
+        ``serve_websocket()``. This class has some tricky internal logic and
+        timing that depends on whether it is an instance of a client connection
+        or a server connection. The convenience functions handle this complexity
+        for you.
+
         :param SocketStream stream:
-        :param wsproto: a WSConnection instance
-        :param client: a Trio cancel scope (only used by the server)
+        :type wsproto: wsproto.connection.WSConnection
+        :param str path: The URL path for this connection. Only used for server
+            instances.
         '''
         self._close_reason = None
         self._id = next(self.__class__.CONNECTION_ID)
@@ -321,8 +451,12 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._str_message = ''
         self._reader_running = True
         self._path = path
+        self._subprotocol = None
         self._put_channel, self._get_channel = open_channel(0)
         self._pings = OrderedDict()
+        # Set when the server has received a connection request event. This
+        # future is never set on client connections.
+        self._connection_proposal = Future()
         # Set once the WebSocket open handshake takes place, i.e.
         # ConnectionRequested for server or ConnectedEstablished for client.
         self._open_handshake = trio.Event()
@@ -356,6 +490,17 @@ class WebSocketConnection(trio.abc.AsyncResource):
     def path(self):
         """Returns the path from the HTTP handshake."""
         return self._path
+
+    @property
+    def subprotocol(self):
+        '''
+        Returns the negotiated subprotocol or ``None``.
+
+        This is only valid after the opening handshake is complete.
+
+        :rtype: str or None
+        '''
+        return self._subprotocol
 
     async def aclose(self, code=1000, reason=None):
         '''
@@ -473,6 +618,22 @@ class WebSocketConnection(trio.abc.AsyncResource):
         # (e.g. self.aclose()) to resume.
         self._close_handshake.set()
 
+    async def _accept(self, proposal):
+        '''
+        Accept a given proposal.
+
+        This finishes the server-side handshake with the given proposal
+        attributes and return the connection instance.
+
+        :rtype: WebSocketConnection
+        '''
+        self._subprotocol = proposal.subprotocol
+        self._path = proposal.url.path
+        self._wsproto.accept(proposal._event, self._subprotocol)
+        await self._write_pending()
+        self._open_handshake.set()
+        return self
+
     async def _close_stream(self):
         ''' Close the TCP connection. '''
         self._reader_running = False
@@ -493,16 +654,35 @@ class WebSocketConnection(trio.abc.AsyncResource):
         logger.debug('conn#%d websocket closed %r', self._id, exc)
         self._put_channel.close()
 
+    async def _get_request(self):
+        '''
+        Return a proposal for a WebSocket handshake.
+
+        This method can only be called on server connections and it may only be
+        called one time.
+
+        :rtype: WebSocketRequest
+        '''
+        if not self.is_server:
+            raise Exception('This method is only valid for server connections.')
+        if self._connection_proposal is None:
+            raise Exception('No proposal available. Did you call this method'
+                ' multiple times or at the wrong time?')
+        proposal = await self._connection_proposal.wait_value()
+        self._connection_proposal = None
+        return proposal
+
     async def _handle_connection_requested_event(self, event):
         '''
         Handle a ConnectionRequested event.
 
+        This method is async even though it never awaits, because the event
+        dispatch requires an async function.
+
         :param event:
         '''
-        self._path = event.h11request.target
-        self._wsproto.accept(event)
-        await self._write_pending()
-        self._open_handshake.set()
+        proposal = WebSocketRequest(self._accept, event)
+        self._connection_proposal.set_value(proposal)
 
     async def _handle_connection_established_event(self, event):
         '''
@@ -510,6 +690,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param event:
         '''
+        self._subprotocol = event.subprotocol
         self._open_handshake.set()
 
     async def _handle_connection_closed_event(self, event):
@@ -792,6 +973,5 @@ class WebSocketServer:
             connection = WebSocketConnection(stream, wsproto)
             nursery.start_soon(connection._reader_task)
             async with connection:
-                await connection._open_handshake.wait()
-                await self._handler(connection)
-            nursery.cancel_scope.cancel()
+                request = await connection._get_request()
+                await self._handler(request)
