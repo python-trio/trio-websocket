@@ -39,7 +39,7 @@ setup(
         'async_generator',
         'attrs>=18.2',
         'ipaddress',
-        'trio>=0.8',
+        'trio>=0.9,<0.10.0',
         'wsaccel',
         'wsproto>=0.12.0',
         'yarl'
