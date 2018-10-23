@@ -160,7 +160,6 @@ async def test_serve_non_tcp_listener(nursery):
     with pytest.raises(RuntimeError):
         server.port
     assert server.listeners[0].startswith('MemoryListener(')
-    # TODO add support for arbitrary client streams and test here
 
 
 async def test_serve_multiple_listeners(nursery):
@@ -187,6 +186,10 @@ async def test_client_open(echo_server):
 
 
 async def test_client_open_url(echo_server):
+    url = 'ws://{}:{}{}/path'.format(HOST, echo_server.port, RESOURCE)
+    async with open_websocket_url(url) as conn:
+        assert conn.path == RESOURCE + '/path'
+
     url = 'ws://{}:{}{}?foo=bar'.format(HOST, echo_server.port, RESOURCE)
     async with open_websocket_url(url) as conn:
         assert conn.path == RESOURCE + '?foo=bar'

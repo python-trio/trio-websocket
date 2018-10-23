@@ -152,8 +152,7 @@ def _url_to_host(url, ssl_context):
         ssl_context = url.scheme == 'wss'
     elif url.scheme == 'ws':
         raise ValueError('SSL context must be None for ws: URL scheme')
-    resource = '{}?{}'.format(url.path, url.query_string)
-    return url.host, url.port, resource, ssl_context
+    return url.host, url.port, url.path_qs, ssl_context
 
 
 async def wrap_client_stream(nursery, stream, host, resource):
