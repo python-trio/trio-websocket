@@ -50,6 +50,8 @@ setup(
             'pytest>=3.6',
             'pytest-cov',
             'pytest-trio>=0.5.0',
+            'sphinx',
+            'sphinx_rtd_theme',
             'trustme',
         ],
     },
