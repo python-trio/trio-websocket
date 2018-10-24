@@ -16,7 +16,6 @@ import wsproto.connection as wsconnection
 import wsproto.frame_protocol as wsframeproto
 from yarl import URL
 
-from ._channel import open_channel, EndOfChannel
 from .version import __version__
 
 RECEIVE_BYTES = 4096
@@ -452,7 +451,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         self._path = path
         self._subprotocol = None
-        self._put_channel, self._get_channel = open_channel(0)
+        self._send_channel, self._recv_channel = trio.open_memory_channel(0)
         self._pings = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
@@ -541,8 +540,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
         try:
-            message = await self._get_channel.get()
-        except EndOfChannel:
+            message = await self._recv_channel.receive()
+        except trio.EndOfChannel:
             raise ConnectionClosed(self._close_reason) from None
         return message
 
@@ -601,7 +600,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._wsproto.send_data(message)
         await self._write_pending()
 
-    def _abort_web_socket(self):
+    async def _abort_web_socket(self):
         '''
         If a stream is closed outside of this class, e.g. due to network
         conditions or because some other code closed our stream object, then we
@@ -612,7 +611,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         if not self._wsproto.closed:
             self._wsproto.close(close_reason)
         if self._close_reason is None:
-            self._close_web_socket(close_reason)
+            await self._close_web_socket(close_reason)
         self._reader_running = False
         # We didn't really handshake, but we want any task waiting on this event
         # (e.g. self.aclose()) to resume.
@@ -643,7 +642,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # This means the TCP connection is already dead.
             pass
 
-    def _close_web_socket(self, code, reason=None):
+    async def _close_web_socket(self, code, reason=None):
         '''
         Mark the WebSocket as closed. Close the message channel so that if any
         tasks are suspended in get_message(), they will wake up with a
@@ -652,7 +651,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._close_reason = CloseReason(code, reason)
         exc = ConnectionClosed(self._close_reason)
         logger.debug('conn#%d websocket closed %r', self._id, exc)
-        self._put_channel.close()
+        await self._send_channel.aclose()
 
     async def _get_request(self):
         '''
@@ -700,7 +699,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param event:
         '''
         await self._write_pending()
-        self._close_web_socket(event.code, event.reason or None)
+        await self._close_web_socket(event.code, event.reason or None)
         self._close_handshake.set()
 
     async def _handle_connection_failed_event(self, event):
@@ -710,7 +709,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param event:
         '''
         await self._write_pending()
-        self._close_web_socket(event.code, event.reason or None)
+        await self._close_web_socket(event.code, event.reason or None)
         await self._close_stream()
         self._open_handshake.set()
         self._close_handshake.set()
@@ -723,7 +722,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._bytes_message += event.data
         if event.message_finished:
-            await self._put_channel.put(self._bytes_message)
+            await self._send_channel.send(self._bytes_message)
             self._bytes_message = b''
 
     async def _handle_text_received_event(self, event):
@@ -734,7 +733,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._str_message += event.data
         if event.message_finished:
-            await self._put_channel.put(self._str_message)
+            await self._send_channel.send(self._str_message)
             self._str_message = ''
 
     async def _handle_ping_received_event(self, event):
@@ -812,7 +811,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             try:
                 data = await self._stream.receive_some(RECEIVE_BYTES)
             except (trio.BrokenResourceError, trio.ClosedResourceError):
-                self._abort_web_socket()
+                await self._abort_web_socket()
                 break
             if len(data) == 0:
                 logger.debug('conn#%d received zero bytes (connection closed)',
@@ -820,7 +819,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 # If TCP closed before WebSocket, then record it as an abnormal
                 # closure.
                 if not self._wsproto.closed:
-                    self._abort_web_socket()
+                    await self._abort_web_socket()
                 break
             else:
                 logger.debug('conn#%d received %d bytes', self._id, len(data))
@@ -839,7 +838,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 try:
                     await self._stream.send_all(data)
                 except (trio.BrokenResourceError, trio.ClosedResourceError):
-                    self._abort_web_socket()
+                    await self._abort_web_socket()
                     raise ConnectionClosed(self._close_reason) from None
         else:
             logger.debug('conn#%d no pending data to send', self._id)

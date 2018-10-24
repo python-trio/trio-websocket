@@ -64,16 +64,15 @@ async def echo_conn_handler(conn):
 
 @attr.s(hash=False, cmp=False)
 class MemoryListener(trio.abc.Listener):
-    ''' This class is copied from trio's own test suite. '''
     closed = attr.ib(default=False)
-    accepted_streams = attr.ib(default=attr.Factory(list))
-    queued_streams = attr.ib(default=attr.Factory(lambda: trio.Queue(1)))
+    accepted_streams = attr.ib(factory=list)
+    queued_streams = attr.ib(factory=(lambda: trio.open_memory_channel(1)))
     accept_hook = attr.ib(default=None)
 
     async def connect(self):
         assert not self.closed
-        client, server = trio.testing.memory_stream_pair()
-        await self.queued_streams.put(server)
+        client, server = memory_stream_pair()
+        await self.queued_streams[0].send(server)
         return client
 
     async def accept(self):
@@ -81,7 +80,7 @@ class MemoryListener(trio.abc.Listener):
         assert not self.closed
         if self.accept_hook is not None:
             await self.accept_hook()
-        stream = await self.queued_streams.get()
+        stream = await self.queued_streams[1].receive()
         self.accepted_streams.append(stream)
         return stream
 
