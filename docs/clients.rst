@@ -5,11 +5,11 @@ Clients
 
 .. currentmodule:: trio_websocket
 
-Context Managers
-----------------
+Creating A Client
+-----------------
 
 This page goes into the details of creating a WebSocket client. Let's start by
-revisiting the example from :ref:`client-tutorial`.
+revisiting the example from the :ref:`client-tutorial`.
 
 .. code-block:: python
     :linenos:
@@ -38,10 +38,13 @@ As explained in the tutorial, ``open_websocket_url(…)`` is a context manager
 that ensures the connection is properly opened and ready before entering the
 block. It also ensures that the connection is closed before exiting the block.
 This library contains two such context managers for creating client connections:
-one to connect by host/port/path and one to connect by URL.
+one to connect by host and one to connect by URL.
 
 .. autofunction:: open_websocket
+    :async-with: ws
+
 .. autofunction:: open_websocket_url
+    :async-with: ws
 
 Custom Nursery
 --------------

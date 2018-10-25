@@ -1,10 +1,3 @@
-[![PyPI](https://img.shields.io/pypi/v/trio-websocket.svg?style=flat-square)](https://pypi.org/project/trio-websocket/)
-![Python Versions](https://img.shields.io/pypi/pyversions/trio-websocket.svg?style=flat-square)
-![MIT License](https://img.shields.io/github/license/HyperionGray/trio-websocket.svg?style=flat-square)
-[![Build Status](https://img.shields.io/travis/HyperionGray/trio-websocket.svg?style=flat-square)](https://travis-ci.org/HyperionGray/trio-websocket)
-[![Coverage](https://img.shields.io/coveralls/github/HyperionGray/trio-websocket.svg?style=flat-square)](https://coveralls.io/github/HyperionGray/trio-websocket?branch=master)
-![Read the Docs](https://img.shields.io/readthedocs/trio-websocket.svg)
-
 # Trio WebSocket
 
 This library implements [the WebSocket
@@ -19,6 +12,13 @@ framework](https://trio.readthedocs.io/en/latest/). This library passes the
 
 This README contains a brief introduction to the project. Full documentation [is
 available here](https://trio-websocket.readthedocs.io).
+
+[![PyPI](https://img.shields.io/pypi/v/trio-websocket.svg?style=flat-square)](https://pypi.org/project/trio-websocket/)
+![Python Versions](https://img.shields.io/pypi/pyversions/trio-websocket.svg?style=flat-square)
+![MIT License](https://img.shields.io/github/license/HyperionGray/trio-websocket.svg?style=flat-square)
+[![Build Status](https://img.shields.io/travis/HyperionGray/trio-websocket.svg?style=flat-square)](https://travis-ci.org/HyperionGray/trio-websocket)
+[![Coverage](https://img.shields.io/coveralls/github/HyperionGray/trio-websocket.svg?style=flat-square)](https://coveralls.io/github/HyperionGray/trio-websocket?branch=master)
+[![Read the Docs](https://img.shields.io/readthedocs/trio-websocket.svg)](https://trio-websocket.readthedocs.io)
 
 ## Installation
 

@@ -28,17 +28,16 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None):
     '''
     Open a WebSocket client connection to a host.
 
-    This function is an async context manager that connects before entering the
-    context manager and disconnects after leaving. It yields a
-    `WebSocketConnection` instance.
-
-    ``use_ssl`` can be an ``SSLContext`` object, or if it's ``True``, then a
-    default SSL context will be created. If it is ``False``, then SSL will not
-    be used at all.
+    This async context manager connects when entering the context manager and
+    disconnects when exiting. It yields a
+    :class:`WebSocketConnection` instance.
 
     :param str host: The host to connect to.
     :param int port: The port to connect to.
     :param str resource: The resource, i.e. URL path.
+    :param use_ssl: If this is an SSL context, then use that context. If this is
+        ``True`` then use default SSL context. If this is ``False`` then disable
+        SSL.
     :type use_ssl: bool or ssl.SSLContext
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
@@ -53,12 +52,13 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None):
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     subprotocols=None):
     '''
-    Return a WebSocket client connection to a host.
+    Return an open WebSocket client connection to a host.
 
-    Most users should use ``open_websocket(…)`` instead of this function. This
-    function is not an async context manager, and it requires a nursery argument
-    for the connection's background task[s]. The caller is responsible for
-    closing the connection.
+    This function is used to specify a custom nursery to run connection
+    background tasks in. The caller is responsible for closing the connection.
+
+    If you don't need a custom nursery, you should probably use
+    :func:`open_websocket` instead.
 
     :param nursery: A Trio nursery to run background tasks in.
     :param str host: The host to connect to.
@@ -101,16 +101,13 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None):
     '''
     Open a WebSocket client connection to a URL.
 
-    This function is an async context manager that connects when entering the
-    context manager and disconnects when exiting. It yields a
-    `WebSocketConnection` instance.
-
-    If ``ssl_context`` is ``None`` and the URL scheme is ``wss:``, then a
-    default SSL context will be created. It is an error to pass an SSL context
-    for ``ws:`` URLs.
+    This async context manager connects when entering the context manager and
+    disconnects when exiting. It yields a
+    :class:`WebSocketConnection` instance.
 
     :param str url: A WebSocket URL, i.e. `ws:` or `wss:` URL scheme.
-    :param ssl_context: Optional SSL context used for ``wss:`` URLs.
+    :param ssl_context: Optional SSL context used for ``wss:`` URLs. A default
+        SSL context is used for ``wss:`` if this argument is ``None``.
     :type ssl_context: ssl.SSLContext or None
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
@@ -123,15 +120,13 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None):
 async def connect_websocket_url(nursery, url, ssl_context=None, *,
     subprotocols=None):
     '''
-    Return a WebSocket client connection to a URL.
+    Return an open WebSocket client connection to a URL.
 
-    Most users should use ``open_websocket_url(…)`` instead of this function.
-    This function is not an async context manager, and it requires a nursery
-    argument for the connection's background task[s].
+    This function is used to specify a custom nursery to run connection
+    background tasks in. The caller is responsible for closing the connection.
 
-    If ``ssl_context`` is ``None`` and the URL scheme is ``wss:``, then a
-    default SSL context will be created. It is an error to pass an SSL context
-    for ``ws:`` URLs.
+    If you don't need a custom nursery, you should probably use
+    :func:`open_websocket_url` instead.
 
     :param str url: A WebSocket URL.
     :param ssl_context: Optional SSL context used for ``wss:`` URLs.
@@ -171,10 +166,10 @@ def _url_to_host(url, ssl_context):
 async def wrap_client_stream(nursery, stream, host, resource, *,
     subprotocols=None):
     '''
-    Wrap an arbitrary stream in a client-side ``WebSocketConnection``.
+    Wrap an arbitrary stream in a WebSocket connection.
 
-    This is a low-level function only needed in rare cases. Most users should
-    call :func:open_websocket() or :func:open_websocket_url.
+    This is a low-level function only needed in rare cases. In most cases, you
+    should use :func:`open_websocket` or :func:`open_websocket_url`.
 
     :param nursery: A Trio nursery to run background tasks in.
     :param stream: A Trio stream to be wrapped.
@@ -198,17 +193,13 @@ async def wrap_server_stream(nursery, stream):
     '''
     Wrap an arbitrary stream in a server-side WebSocket.
 
-    The object returned is a :class:`WebSocketRequest`, which indicates the
-    client's proposed handshake. Call ``accept()`` on this object to obtain a
-    :class:`WebSocketConnection`.
-
-    This is a low-level function only needed in rare cases. Most users should
-    call :func:serve_websocket.
+    This is a low-level function only needed in rare cases. In most cases, you
+    should use :func:`serve_websocket`.
 
     :param nursery: A nursery to run background tasks in.
     :param stream: A stream to be wrapped.
     :type stream: trio.abc.Stream
-    :rtype: WebSocketRequest
+    :rtype: WebSocketConnection
     '''
     wsproto = wsconnection.WSConnection(wsconnection.SERVER)
     connection = WebSocketConnection(stream, wsproto)
@@ -224,28 +215,26 @@ async def serve_websocket(handler, host, port, ssl_context, *,
 
     This function supports the Trio nursery start protocol: ``server = await
     nursery.start(serve_websocket, …)``. It will block until the server
-    is accepting connections and then return the WebSocketServer object.
+    is accepting connections and then return a :class:`WebSocketServer` object.
 
     Note that if ``host`` is ``None`` and ``port`` is zero, then you may get
     multiple listeners that have *different port numbers!*
 
-    :param handler: The async function called with the corresponding
-        WebSocketConnection on each new connection.  The call will be made
-        once the HTTP handshake completes, which notably implies that the
-        connection's `path` property will be valid.
+    :param handler: An async function that is invoked with a request
+        for each new connection.
     :param host: The host interface to bind. This can be an address of an
         interface, a name that resolves to an interface address (e.g.
         ``localhost``), or a wildcard address like ``0.0.0.0`` for IPv4 or
         ``::`` for IPv6. If ``None``, then all local interfaces are bound.
     :type host: str, bytes, or None
-    :param int port: The port to bind to
+    :param int port: The port to bind to.
     :param ssl_context: The SSL context to use for encrypted connections, or
         ``None`` for unencrypted connection.
-    :type ssl_context: SSLContext or None
+    :type ssl_context: ssl.SSLContext or None
     :param handler_nursery: An optional nursery to spawn handlers and background
         tasks in. If not specified, a new nursery will be created internally.
-    :param task_status: part of Trio nursery start protocol
-    :returns: This function never returns unless cancelled.
+    :param task_status: Part of Trio nursery start protocol.
+    :returns: This function runs until cancelled.
     '''
     if ssl_context is None:
         open_tcp_listeners = partial(trio.open_tcp_listeners, port, host=host)
@@ -267,7 +256,8 @@ class ConnectionClosed(Exception):
         '''
         Constructor.
 
-        :param CloseReason reason:
+        :param reason:
+        :type reason: CloseReason
         '''
         self.reason = reason
 
@@ -301,17 +291,17 @@ class CloseReason:
 
     @property
     def code(self):
-        ''' The numeric close code. '''
+        ''' (Read-only) The numeric close code. '''
         return self._code
 
     @property
     def name(self):
-        ''' The human-readable close code. '''
+        ''' (Read-only) The human-readable close code. '''
         return self._name
 
     @property
     def reason(self):
-        ''' An arbitrary reason string. '''
+        ''' (Read-only) An arbitrary reason string. '''
         return self._reason
 
     def __repr__(self):
@@ -518,9 +508,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
         ``get_message()`` or ``send_message()``) will raise
         ``ConnectionClosed``.
 
-        :param int code:
-        :param str reason:
-        :raises ConnectionClosed: if connection is already closed
+        This method is idempotent: it may be called multiple times on the same
+        connection without any errors.
+
+        :param int code: A 4-digit code number indicating the type of closure.
+        :param str reason: An optional string describing the closure.
         '''
         if self._close_reason:
             # Per AsyncResource interface, calling aclose() on a closed resource
@@ -558,15 +550,18 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         Send WebSocket ping to remote endpoint and wait for a correspoding pong.
 
-        Each ping must include a unique payload. This function sends the ping
-        and then waits for a corresponding pong from the remote endpoint. If the
-        remote endpoint recieves multiple pings, it is allowed to send a single
-        pong. Therefore, the order of calls to ``ping()`` is tracked, and a pong
-        will wake up its corresponding ping *as well as any earlier pings*.
+        Each in-flight ping must include a unique payload. This function sends
+        the ping and then waits for a corresponding pong from the remote
+        endpoint.
+
+        *Note: If the remote endpoint recieves multiple pings, it is allowed to
+        send a single pong. Therefore, the order of calls to ``ping()`` is
+        tracked, and a pong will wake up its corresponding ping as well as all
+        previous in-flight pings.*
 
         :param payload: The payload to send. If ``None`` then a random 32-bit
             payload is created.
-        :type payload: str, bytes, or None
+        :type payload: bytes or None
         :raises ConnectionClosed: if connection is closed.
         :raises ValueError: if ``payload`` is identical to another in-flight
             ping.
@@ -590,7 +585,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param payload: The pong's payload. If ``None``, then no payload is
             sent.
-        :type payload: str, bytes, or None
+        :type payload: bytes or None
         :raises ConnectionClosed: if connection is closed
         '''
         if self._close_reason:
@@ -601,8 +596,6 @@ class WebSocketConnection(trio.abc.AsyncResource):
     async def send_message(self, message):
         '''
         Send a WebSocket message.
-
-        Raises ``ConnectionClosed`` if the connection is closed..
 
         :param message: The message to send.
         :type message: str or bytes

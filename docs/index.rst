@@ -35,3 +35,4 @@ Autobahn Test Suite <https://github.com/crossbario/autobahn-testsuite>`__.
    api
    recipes
    contributing
+   credits

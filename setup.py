@@ -52,6 +52,7 @@ setup(
             'pytest-trio>=0.5.0',
             'sphinx',
             'sphinx_rtd_theme',
+            'sphinxcontrib-trio',
             'trustme',
         ],
     },

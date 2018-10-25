@@ -37,10 +37,9 @@ Connections
         The preferred way to obtain a connection is to use one of the
         convenience functions described in :ref:`websocket-clients` or
         :ref:`websocket-servers`. Instantiating a connection instance directly is
-        tricky and only advisable for esoteric use cases.
+        tricky and is not recommended.
 
-    A connection has properties that expose the connection's role (client vs.
-    server) and other connection metadata.
+    This object has properties that expose connection metadata.
 
     .. autoattribute:: is_closed
     .. autoattribute:: close_reason
@@ -68,7 +67,7 @@ Connections
     .. automethod:: pong
 
     Finally, the socket offers a method to close the connection. The connection
-    context managers in ref:`websocket-clients` and :ref:`websocket-servers`
+    context managers in :ref:`websocket-clients` and :ref:`websocket-servers`
     will automatically close the connection for you, but you may want to close
     the connection explicity if you are not using a context manager or if you
     want to customize the close reason.
@@ -79,4 +78,3 @@ Connections
     :members:
 
 .. autoexception:: ConnectionClosed
-    :members:

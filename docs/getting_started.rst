@@ -20,8 +20,8 @@ Change into the project directory and run the following command.
 
     $ pip3 install .
 
-If you want to contribute to development of the library, look at the
-documentation for :ref:`developer-installation`.
+If you want to contribute to development of the library, also see
+:ref:`developer-installation`.
 
 .. _client-tutorial:
 
@@ -52,7 +52,7 @@ The function :func:`open_websocket_url` is a context manager that automatically
 connects and performs the WebSocket handshake before entering the block. This
 ensures that the connection is usable before ``ws.send_message(…)`` is called.
 The context manager yields a :class:`WebSocketConnection` instance that is used
-to send and receive message. The context manager also closes the connection
+to send and receive messages. The context manager also closes the connection
 before exiting the block.
 
 For more details and examples, see :ref:`websocket-clients`.
@@ -63,8 +63,8 @@ Server Tutorial
 ---------------
 
 This example briefly demonstrates how to create a WebSocket server. This server
-is an *echo server*, i.e. it reads a message and then sends back the same
-message.
+is an *echo server*, i.e. it responds to each incoming message by sending back
+an identical message.
 
 .. code-block:: python
     :linenos:

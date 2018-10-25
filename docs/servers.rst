@@ -9,7 +9,7 @@ Creating A Server
 -----------------
 
 This page goes into the details of creating a WebSocket server. Let's start by
-revisiting the example from :ref:`server-tutorial`.
+revisiting the example from the :ref:`server-tutorial`.
 
 .. code-block:: python
     :linenos:
@@ -37,15 +37,15 @@ revisiting the example from :ref:`server-tutorial`.
     <https://github.com/HyperionGray/trio-websocket/blob/master/examples/server.py>`__.
 
 As explained in the tutorial, a WebSocket server needs a handler function and a
-host and port to bind to. The handler function receives a
-:class:`WebSocketRequest` object, and it calls ``accept()`` to finish the
-handshake and obtain a
+host/port to bind to. The handler function receives a
+:class:`WebSocketRequest` object, and it calls the request's
+:func:`~WebSocketRequest.accept` method to finish the handshake and obtain a
 :class:`WebSocketConnection` object.
 
 .. autofunction:: serve_websocket
 
-Serving Arbitrary Stream
-------------------------
+Custom Stream
+-------------
 
 The WebSocket protocol is defined as an application layer protocol that runs on
 top of TCP, and the convenience functions described above automatically create
