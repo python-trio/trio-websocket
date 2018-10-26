@@ -23,10 +23,10 @@ Change into the project directory and run the following command.
 If you want to contribute to development of the library, also see
 :ref:`developer-installation`.
 
-.. _client-tutorial:
+.. _client-example:
 
-Client Tutorial
----------------
+Client Example
+--------------
 
 This example briefly demonstrates how to create a WebSocket client.
 
@@ -57,9 +57,9 @@ before exiting the block.
 
 For more details and examples, see :ref:`websocket-clients`.
 
-.. _server-tutorial:
+.. _server-example:
 
-Server Tutorial
+Server Example
 ---------------
 
 This example briefly demonstrates how to create a WebSocket server. This server

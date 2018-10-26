@@ -5,11 +5,11 @@ Clients
 
 .. currentmodule:: trio_websocket
 
-Creating A Client
------------------
+Client Tutorial
+---------------
 
 This page goes into the details of creating a WebSocket client. Let's start by
-revisiting the example from the :ref:`client-tutorial`.
+revisiting the :ref:`client-example`.
 
 .. code-block:: python
     :linenos:

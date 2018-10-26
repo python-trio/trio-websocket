@@ -5,11 +5,11 @@ Servers
 
 .. currentmodule:: trio_websocket
 
-Creating A Server
------------------
+Server Tutorial
+---------------
 
 This page goes into the details of creating a WebSocket server. Let's start by
-revisiting the example from the :ref:`server-tutorial`.
+revisiting the :ref:`server-example`.
 
 .. code-block:: python
     :linenos:
