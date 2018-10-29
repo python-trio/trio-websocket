@@ -276,7 +276,7 @@ async def test_client_ping_same_payload(echo_conn):
         nonlocal exc_count
         try:
             await echo_conn.ping(b'A')
-        except Exception:
+        except ValueError:
             exc_count += 1
     async with echo_conn:
         async with trio.open_nursery() as nursery:
