@@ -6,6 +6,7 @@ from ._impl import (
     open_websocket,
     open_websocket_url,
     WebSocketConnection,
+    WebSocketRequest,
     WebSocketServer,
     wrap_client_stream,
     wrap_server_stream,
