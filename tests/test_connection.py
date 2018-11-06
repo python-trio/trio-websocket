@@ -380,3 +380,14 @@ async def test_server_handler_exit(nursery, autojump_clock):
             with pytest.raises(ConnectionClosed) as e:
                 await connection.get_message()
                 assert e.reason.name == 'NORMAL_CLOSURE'
+
+
+async def test_client_cm_exit_with_pending_messages(echo_server, autojump_clock):
+    with trio.fail_after(1):
+        async with open_websocket(HOST, echo_server.port, RESOURCE,
+                use_ssl=False) as ws:
+            await ws.send_message('hello')
+            # allow time for the server to respond
+            await trio.sleep(.1)
+            # bug: context manager exit is blocked on unconsumed message
+            #await ws.get_message()
