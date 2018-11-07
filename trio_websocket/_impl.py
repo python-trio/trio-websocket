@@ -445,7 +445,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         self._path = path
         self._subprotocol = None
-        self._send_channel, self._recv_channel = trio.open_memory_channel(0)
+        self._send_channel, self._recv_channel = trio.open_memory_channel(32)
         self._pings = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
@@ -520,6 +520,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             return
         self._wsproto.close(code=code, reason=reason)
         try:
+            await self._recv_channel.aclose()
             await self._write_pending()
             await self._close_handshake.wait()
         finally:
@@ -538,11 +539,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :raises ConnectionClosed: if connection is closed before a message
             arrives.
         '''
-        if self._close_reason:
-            raise ConnectionClosed(self._close_reason)
         try:
             message = await self._recv_channel.receive()
-        except trio.EndOfChannel:
+        except (trio.ClosedResourceError, trio.EndOfChannel):
             raise ConnectionClosed(self._close_reason) from None
         return message
 
@@ -739,7 +738,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._str_message += event.data
         if event.message_finished:
-            await self._send_channel.send(self._str_message)
+            try:
+                await self._send_channel.send(self._str_message)
+            except trio.BrokenResourceError:
+                # The receive channel is closed, probably because somebody
+                # called ``aclose()``. We don't want to abort the reader task,
+                # and there's no useful cleanup that we can do here.
+                pass
             self._str_message = ''
 
     async def _handle_ping_received_event(self, event):

@@ -377,6 +377,61 @@ async def test_server_handler_exit(nursery, autojump_clock):
     with trio.fail_after(2):
         async with open_websocket(
                 HOST, server.port, '/', use_ssl=False) as connection:
-            with pytest.raises(ConnectionClosed) as e:
+            with pytest.raises(ConnectionClosed) as exc_info:
                 await connection.get_message()
-                assert e.reason.name == 'NORMAL_CLOSURE'
+            exc = exc_info.value
+            assert exc.reason.name == 'NORMAL_CLOSURE'
+
+
+async def test_read_messages_after_remote_close(nursery):
+    '''
+    When the remote endpoint closes, the local endpoint can still reading all
+    of the messages sent prior to closing. Any attempt to read beyond that will
+    raise ConnectionClosed.
+    '''
+    server_closed = trio.Event()
+
+    async def handler(request):
+        server = await request.accept()
+        async with server:
+            await server.send_message('1')
+            await server.send_message('2')
+        server_closed.set()
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    async with open_websocket(HOST, server.port, '/', use_ssl=False) as client:
+        await server_closed.wait()
+        assert await client.get_message() == '1'
+        assert await client.get_message() == '2'
+        with pytest.raises(ConnectionClosed):
+            await client.get_message()
+
+
+async def test_no_messages_after_local_close(nursery):
+    '''
+    If the local endpoint initiates closing, then pending messages are discarded
+    and any attempt to read a message will raise ConnectionClosed.
+    '''
+    client_closed = trio.Event()
+
+    async def handler(request):
+        # The server sends some messages and then closes.
+        server = await request.accept()
+        async with server:
+            await server.send_message('1')
+            await server.send_message('2')
+            await client_closed.wait()
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    # The client waits until the server closes (using an out-of-band trio Event)
+    # and then reads the messages. After reading all messages, it should raise
+    # ConnectionClosed.
+    async with open_websocket(HOST, server.port, '/', use_ssl=False) as client:
+        pass
+    with pytest.raises(ConnectionClosed):
+        await client.get_message()
+    client_closed.set()
