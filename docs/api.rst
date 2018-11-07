@@ -41,8 +41,7 @@ Connections
 
     This object has properties that expose connection metadata.
 
-    .. autoattribute:: is_closed
-    .. autoattribute:: close_reason
+    .. autoattribute:: closed
     .. autoattribute:: is_client
     .. autoattribute:: is_server
     .. autoattribute:: path
