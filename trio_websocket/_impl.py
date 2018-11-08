@@ -14,6 +14,7 @@ import trio.abc
 import trio.ssl
 import wsproto.connection as wsconnection
 import wsproto.frame_protocol as wsframeproto
+from wsproto.events import BytesReceived
 from yarl import URL
 
 from .version import __version__
@@ -440,8 +441,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._stream = stream
         self._stream_lock = trio.StrictFIFOLock()
         self._wsproto = wsproto
-        self._bytes_message = b''
-        self._str_message = ''
+        self._message_parts = []  # type: List[bytes|str]
         self._reader_running = True
         self._path = path
         self._subprotocol = None
@@ -720,27 +720,18 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._open_handshake.set()
         self._close_handshake.set()
 
-    async def _handle_bytes_received_event(self, event):
+    async def _handle_data_received_event(self, event):
         '''
-        Handle a BytesReceived event.
+        Handle a BytesReceived or TextReceived event.
 
         :param event:
         '''
-        self._bytes_message += event.data
+        self._message_parts.append(event.data)
         if event.message_finished:
-            await self._send_channel.send(self._bytes_message)
-            self._bytes_message = b''
-
-    async def _handle_text_received_event(self, event):
-        '''
-        Handle a TextReceived event.
-
-        :param event:
-        '''
-        self._str_message += event.data
-        if event.message_finished:
-            await self._send_channel.send(self._str_message)
-            self._str_message = ''
+            msg = (b'' if isinstance(event, BytesReceived) else '') \
+                .join(self._message_parts)
+            await self._send_channel.send(msg)
+            self._message_parts = []
 
     async def _handle_ping_received_event(self, event):
         '''
@@ -790,8 +781,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
             'ConnectionFailed': self._handle_connection_failed_event,
             'ConnectionEstablished': self._handle_connection_established_event,
             'ConnectionClosed': self._handle_connection_closed_event,
-            'BytesReceived': self._handle_bytes_received_event,
-            'TextReceived': self._handle_text_received_event,
+            'BytesReceived': self._handle_data_received_event,
+            'TextReceived': self._handle_data_received_event,
             'PingReceived': self._handle_ping_received_event,
             'PongReceived': self._handle_pong_received_event,
         }
