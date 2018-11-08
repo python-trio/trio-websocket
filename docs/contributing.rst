@@ -20,6 +20,11 @@ environment, and install the developer dependencies::
 This example uses Python's built-in ``venv`` package, but you can of course use
 other virtual environment tools such as ``virtualenvwrapper``.
 
+The instructions above *do not install the ``trio-websocket`` package itself*.
+Instead, you should add the project directory to ``$PYTHONPATH``. For example,
+add ``export PYTHONPATH=$(dirname $VIRTUAL_ENV)`` to the end of your
+``venv/bin/activate`` script.
+
 Development Dependencies
 ------------------------
 

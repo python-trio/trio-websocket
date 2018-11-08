@@ -1,6 +1,5 @@
 # This file specifies development dependencies. It is processed by pip-compile
 # to generate requirements-dev.txt. See the developer docs for more information.
--e .
 coveralls
 pip-tools
 pytest
