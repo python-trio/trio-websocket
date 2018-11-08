@@ -385,7 +385,7 @@ async def test_server_handler_exit(nursery, autojump_clock):
 
 async def test_read_messages_after_remote_close(nursery):
     '''
-    When the remote endpoint closes, the local endpoint can still reading all
+    When the remote endpoint closes, the local endpoint can still read all
     of the messages sent prior to closing. Any attempt to read beyond that will
     raise ConnectionClosed.
     '''

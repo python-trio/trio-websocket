@@ -418,7 +418,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto, *, path=None):
+    def __init__(self, stream, wsproto, *, path=None,
+            message_queue_size_do_not_use=2):
         '''
         Constructor.
 
@@ -445,7 +446,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         self._path = path
         self._subprotocol = None
-        self._send_channel, self._recv_channel = trio.open_memory_channel(32)
+        # TODO changed channel size from 0 to 2 temporarily to enable
+        # test_read_messages_after_remote_close to pass. The channel size will
+        # become a configurable setting when #74 is fixed.
+        self._send_channel, self._recv_channel = trio.open_memory_channel(
+            message_queue_size_do_not_use)
         self._pings = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
