@@ -419,8 +419,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto, *, path=None,
-            message_queue_size_do_not_use=2):
+    def __init__(self, stream, wsproto, *, path=None):
         '''
         Constructor.
 
@@ -446,11 +445,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         self._path = path
         self._subprotocol = None
-        # TODO changed channel size from 0 to 2 temporarily to enable
-        # test_read_messages_after_remote_close to pass. The channel size will
-        # become a configurable setting when #74 is fixed.
-        self._send_channel, self._recv_channel = trio.open_memory_channel(
-            message_queue_size_do_not_use)
+        self._send_channel, self._recv_channel = trio.open_memory_channel(0)
         self._pings = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
@@ -538,11 +533,17 @@ class WebSocketConnection(trio.abc.AsyncResource):
         Receive the next WebSocket message.
 
         If no message is available immediately, then this function blocks until
-        a message is ready. When the connection is closed, this message
+        a message is ready.
+
+        If the remote endpoint closes the connection, then the caller can still
+        get messages sent prior to closing. Once all pending messages have been
+        retrieved, additional calls to this method will raise
+        ``ConnectionClosed``. If the local endpoint closes the connection, then
+        pending messages are discarded and calls to this method will immediately
+        raise ``ConnectionClosed``.
 
         :rtype: str or bytes
-        :raises ConnectionClosed: if connection is closed before a message
-            arrives.
+        :raises ConnectionClosed: if the connection is closed.
         '''
         try:
             message = await self._recv_channel.receive()
