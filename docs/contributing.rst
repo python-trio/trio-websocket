@@ -9,16 +9,59 @@ Developer Installation
 If you want to help contribute to ``trio-websocket``, then you will need to
 install additional dependencies that are used for testing and documentation. The
 following sequence of commands will clone the repository, create a virtual
-environment, and install the developer dependencies.
-
-::
+environment, and install the developer dependencies::
 
     $ git clone git@github.com:HyperionGray/trio-websocket.git
     $ cd trio-websocket
     $ python3 -m venv venv
     $ source venv/bin/activate
-    (venv) $ pip install --editable .[dev]
+    (venv) $ pip install -r requirements-dev.txt
 
+This example uses Python's built-in ``venv`` package, but you can of course use
+other virtual environment tools such as ``virtualenvwrapper``.
+
+The instructions above *do not install the ``trio-websocket`` package itself*.
+Instead, you should add the project directory to ``$PYTHONPATH``. For example,
+add ``export PYTHONPATH=$(dirname $VIRTUAL_ENV)`` to the end of your
+``venv/bin/activate`` script.
+
+Development Dependencies
+------------------------
+
+You may have noticed in the developer installation instructions that the project
+is installed from ``requirements-dev.txt`` and not from ``setup.py``. This
+requirements file contains extra dependencies only needed for development, such
+as PyTest, Sphinx, etc. The requirements file is generated from
+``requirements-dev.in`` using `pip-tools
+<https://pypi.org/project/pip-tools/>`__, which pins each dependency to an exact
+version. This helps developers make reproducible builds across all environments,
+including Travis CI.
+
+If you need to modify the library's dependencies or modify the dev dependencies,
+you will need to regenerate the requirements file::
+
+    $ pip-compile --output-file requirements-dev.txt setup.py requirements-dev.in
+
+The ``pip-compile`` tool can also upgrade packages, which may be useful if you
+want to update pinned versions without changing the declared dependencies in
+``setup.py`` or ``requirements-dev.in``. The following command upgrades only the
+named packages::
+
+    $ pip-compile -P package1 -P package2 requirements-dev.txt
+
+Or you can upgrade all packages::
+
+    $ pip-compile --upgrade requirements-dev.txt
+
+
+After making changes to dependencies, you should check in the file you changed
+(e.g. ``setup.py`` or ``requirements-dev.txt``) as well as the generated
+``requirements-dev.txt``.
+
+In the future, when you checkout new branches or update existing branches, you
+should use ``pip-sync`` to synchronize dependencies. This command will add,
+upgrade, and even *remove* packages in order to make your environment match the
+expected development environment.
 
 Unit Tests
 ----------
@@ -45,7 +88,7 @@ the project's root with a simple command::
     === 27 passed in 0.41 seconds ===
 
 You can enable code coverage reporting by adding the ``-cov=trio_websocket``
-option to PyTest::
+option to PyTest or using the Makefile target ``make test``::
 
     (venv) $ pytest --cov=trio_websocket
     === test session starts ===
@@ -73,13 +116,14 @@ Documentation
 This documentation is stored in the repository in the ``/docs/`` directory. It
 is written with `RestructuredText markup
 <http://docutils.sourceforge.net/rst.html>`__ and processed by `Sphinx
-<http://www.sphinx-doc.org/en/stable/>`__. To build documentation, go into the
-documentation directory and run this command::
+<http://www.sphinx-doc.org/en/stable/>`__. To build documentation, run this
+command from the project root::
 
-    $ make html
+    $ make docs
 
-The finished documentation can be found in ``/docs/_build/``. It is published
-automatically to `Read The Docs <https://readthedocs.org/>`__.
+The finished documentation can be found in ``/docs/_build/``. This documentation
+is published automatically to `Read The Docs <https://readthedocs.org/>`__ for
+all pushes to master or to a tag.
 
 Autobahn Client Tests
 ---------------------
@@ -170,12 +214,12 @@ To release a new version of this library, we follow this process:
 4. Push the commit and the tag, e.g. ``git push && git push origin 1.2.0``.
 5. Wait for `Travis CI <https://travis-ci.org/HyperionGray/trio-websocket>`__ to
    finish building and ensure that the build is successful.
-6. Ensure that the working copy is in a clean state, e.g. ``git status`` shows
+6. Wait for `Read The Docs <https://trio-websocket.readthedocs.io/en/latest/>`__
+   to finish building and ensure that the build is successful.
+7. Ensure that the working copy is in a clean state, e.g. ``git status`` shows
    no changes.
-7. Clean build directory: ``rm -fr dist``
-8. Build package: ``python setup.py sdist``
-9. Upload to PyPI: ``twine upload dist/*``
-10. In ``version.py`` on ``master`` branch, increment the version number to the
+8. Build package and submit to PyPI: ``make publish``
+9. In ``version.py`` on ``master`` branch, increment the version number to the
     next expected release and add the ``-dev`` suffix, e.g. change ``1.2.0`` to
     ``1.3.0-dev``.
-11. Commit and push ``version.py``.
+10. Commit and push ``version.py``.

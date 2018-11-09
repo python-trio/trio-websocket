@@ -7,7 +7,6 @@ import ssl
 import struct
 
 from async_generator import async_generator, yield_, asynccontextmanager
-import attr
 from ipaddress import ip_address
 import trio
 import trio.abc
@@ -845,12 +844,12 @@ class WebSocketConnection(trio.abc.AsyncResource):
             logger.debug('conn#%d no pending data to send', self._id)
 
 
-@attr.s
 class ListenPort:
     ''' Represents a listener on a given address and port. '''
-    address = attr.ib(converter=ip_address)
-    port = attr.ib()
-    is_ssl = attr.ib()
+    def __init__(self, address, port, is_ssl):
+        self.address = ip_address(address)
+        self.port = port
+        self.is_ssl = is_ssl
 
     def __str__(self):
         ''' Return a compact representation, like 127.0.0.1:80 or [::1]:80. '''

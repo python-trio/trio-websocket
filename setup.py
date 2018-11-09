@@ -36,26 +36,15 @@ setup(
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
-        'async_generator',
-        'attrs>=18.2',
-        'ipaddress',
-        'sphinxcontrib-trio',
-        'trio>=0.9,<0.10.0',
-        'wsaccel',
-        'wsproto>=0.12.0',
-        'yarl'
+        # After modifying dependencies, always rebuild the requirements-dev.txt
+        # file! See developer docs for more details.
+        'async_generator>=1.10,<2',
+        'ipaddress>=1.0.22,<2',
+        'trio>=0.9,<0.10',
+        'wsaccel>=0.6.2,<0.7',
+        'wsproto>=0.12,<0.13',
+        'yarl>=1.2.6,<2'
     ],
-    extras_require={
-        'dev': [
-            'coveralls',
-            'pytest>=3.6',
-            'pytest-cov',
-            'pytest-trio>=0.5.0',
-            'sphinx',
-            'sphinx_rtd_theme',
-            'trustme',
-        ],
-    },
     project_urls={
         'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',
         'Source': 'https://github.com/HyperionGray/trio-websocket',

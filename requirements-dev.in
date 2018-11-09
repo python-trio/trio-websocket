@@ -1,0 +1,12 @@
+# This file specifies development dependencies. It is processed by pip-compile
+# to generate requirements-dev.txt. See the developer docs for more information.
+coveralls
+pip-tools
+pytest
+pytest-cov
+pytest-trio
+sphinx
+sphinxcontrib-trio
+sphinx_rtd_theme
+trustme
+twine
