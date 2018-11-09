@@ -2,8 +2,6 @@
 # product:
 .PHONY: docs
 
-export PYTHONPATH = .
-
 coverage:
 	coveralls -v
 

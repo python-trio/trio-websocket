@@ -15,53 +15,14 @@ environment, and install the developer dependencies::
     $ cd trio-websocket
     $ python3 -m venv venv
     $ source venv/bin/activate
+    (venv) $ pip install -e .
     (venv) $ pip install -r requirements-dev.txt
 
 This example uses Python's built-in ``venv`` package, but you can of course use
 other virtual environment tools such as ``virtualenvwrapper``.
 
-The instructions above *do not install the ``trio-websocket`` package itself*.
-Instead, you should add the project directory to ``$PYTHONPATH``. For example,
-add ``export PYTHONPATH=$(dirname $VIRTUAL_ENV)`` to the end of your
-``venv/bin/activate`` script.
-
-Development Dependencies
-------------------------
-
-You may have noticed in the developer installation instructions that the project
-is installed from ``requirements-dev.txt`` and not from ``setup.py``. This
-requirements file contains extra dependencies only needed for development, such
-as PyTest, Sphinx, etc. The requirements file is generated from
-``requirements-dev.in`` using `pip-tools
-<https://pypi.org/project/pip-tools/>`__, which pins each dependency to an exact
-version. This helps developers make reproducible builds across all environments,
-including Travis CI.
-
-If you need to modify the library's dependencies or modify the dev dependencies,
-you will need to regenerate the requirements file::
-
-    $ pip-compile --output-file requirements-dev.txt setup.py requirements-dev.in
-
-The ``pip-compile`` tool can also upgrade packages, which may be useful if you
-want to update pinned versions without changing the declared dependencies in
-``setup.py`` or ``requirements-dev.in``. The following command upgrades only the
-named packages::
-
-    $ pip-compile -P package1 -P package2 requirements-dev.txt
-
-Or you can upgrade all packages::
-
-    $ pip-compile --upgrade requirements-dev.txt
-
-
-After making changes to dependencies, you should check in the file you changed
-(e.g. ``setup.py`` or ``requirements-dev.txt``) as well as the generated
-``requirements-dev.txt``.
-
-In the future, when you checkout new branches or update existing branches, you
-should use ``pip-sync`` to synchronize dependencies. This command will add,
-upgrade, and even *remove* packages in order to make your environment match the
-expected development environment.
+The ``requirements-dev.txt`` file contains extra dependencies only needed for
+development, such as PyTest, Sphinx, etc.
 
 Unit Tests
 ----------
