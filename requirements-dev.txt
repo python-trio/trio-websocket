@@ -1,7 +1,7 @@
 coveralls
-pytest
+pytest>=3.6
 pytest-cov
-pytest-trio
+pytest-trio>=0.5.0
 sphinx
 sphinxcontrib-trio
 sphinx_rtd_theme
