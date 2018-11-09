@@ -458,7 +458,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._close_handshake = trio.Event()
 
     @property
-    def close_reason(self):
+    def closed(self):
         '''
         (Read-only) The reason why the connection was closed, or ``None`` if the
         connection is still open.
@@ -466,11 +466,6 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :rtype: CloseReason
         '''
         return self._close_reason
-
-    @property
-    def is_closed(self):
-        ''' (Read-only) A boolean indicating whether the WebSocket is closed. '''
-        return self._close_reason is not None
 
     @property
     def is_client(self):

@@ -139,7 +139,7 @@ async def test_serve_ssl(nursery):
     port = server.port
     async with open_websocket(HOST, port, RESOURCE, use_ssl=client_context
             ) as conn:
-        assert not conn.is_closed
+        assert not conn.closed
 
 
 async def test_serve_handler_nursery(nursery):
@@ -194,7 +194,7 @@ async def test_serve_multiple_listeners(nursery):
 async def test_client_open(echo_server):
     async with open_websocket(HOST, echo_server.port, RESOURCE, use_ssl=False) \
         as conn:
-        assert not conn.is_closed
+        assert not conn.closed
 
 
 async def test_client_open_url(echo_server):
@@ -216,13 +216,13 @@ async def test_client_open_invalid_url(echo_server):
 async def test_client_connect(echo_server, nursery):
     conn = await connect_websocket(nursery, HOST, echo_server.port, RESOURCE,
         use_ssl=False)
-    assert not conn.is_closed
+    assert not conn.closed
 
 
 async def test_client_connect_url(echo_server, nursery):
     url = 'ws://{}:{}{}'.format(HOST, echo_server.port, RESOURCE)
     conn = await connect_websocket_url(nursery, url)
-    assert not conn.is_closed
+    assert not conn.closed
 
 
 async def test_handshake_subprotocol(nursery):
@@ -294,28 +294,28 @@ async def test_client_pong(echo_conn):
 
 async def test_client_default_close(echo_conn):
     async with echo_conn:
-        assert not echo_conn.is_closed
-    assert echo_conn.close_reason.code == 1000
-    assert echo_conn.close_reason.reason is None
+        assert not echo_conn.closed
+    assert echo_conn.closed.code == 1000
+    assert echo_conn.closed.reason is None
 
 
 async def test_client_nondefault_close(echo_conn):
     async with echo_conn:
-        assert not echo_conn.is_closed
+        assert not echo_conn.closed
         await echo_conn.aclose(code=1001, reason='test reason')
-    assert echo_conn.close_reason.code == 1001
-    assert echo_conn.close_reason.reason == 'test reason'
+    assert echo_conn.closed.code == 1001
+    assert echo_conn.closed.reason == 'test reason'
 
 
 async def test_wrap_client_stream(echo_server, nursery):
     stream = await trio.open_tcp_stream(HOST, echo_server.port)
     conn = await wrap_client_stream(nursery, stream, HOST, RESOURCE)
     async with conn:
-        assert not conn.is_closed
+        assert not conn.closed
         await conn.send_message('Hello from client!')
         msg = await conn.get_message()
         assert msg == 'Hello from client!'
-    assert conn.is_closed
+    assert conn.closed
 
 
 async def test_wrap_server_stream(nursery):
@@ -323,10 +323,10 @@ async def test_wrap_server_stream(nursery):
         request = await wrap_server_stream(nursery, stream)
         server_ws = await request.accept()
         async with server_ws:
-            assert not server_ws.is_closed
+            assert not server_ws.closed
             msg = await server_ws.get_message()
             assert msg == 'Hello from client!'
-        assert server_ws.is_closed
+        assert server_ws.closed
     serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     listeners = await nursery.start(serve_fn)
     port = listeners[0].socket.getsockname()[1]
