@@ -40,7 +40,8 @@ As explained in the tutorial, a WebSocket server needs a handler function and a
 host/port to bind to. The handler function receives a
 :class:`WebSocketRequest` object, and it calls the request's
 :func:`~WebSocketRequest.accept` method to finish the handshake and obtain a
-:class:`WebSocketConnection` object.
+:class:`WebSocketConnection` object. When the handler function exits, the
+connection is automatically closed.
 
 .. autofunction:: serve_websocket
 
