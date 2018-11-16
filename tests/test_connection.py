@@ -53,6 +53,7 @@ from trio_websocket._impl import ListenPort
 
 HOST = '127.0.0.1'
 RESOURCE = '/resource'
+DEFAULT_TEST_MAX_DURATION = 1
 
 # Timeout tests follow a general pattern: one side waits TIMEOUT seconds for an
 # event. The other side delays for FORCE_TIMEOUT seconds to force the timeout
@@ -60,7 +61,7 @@ RESOURCE = '/resource'
 # prevent a faulty test from hanging the entire suite.
 TIMEOUT = 1
 FORCE_TIMEOUT = 2
-MAX_TIMEOUT_TEST_DURATION = 3
+TIMEOUT_TEST_MAX_DURATION = 3
 
 
 @pytest.fixture
@@ -89,12 +90,6 @@ async def echo_request_handler(request):
     Accept incoming request and then pass off to echo connection handler.
     '''
     conn = await request.accept()
-    await echo_conn_handler(conn)
-
-
-async def echo_conn_handler(conn):
-    ''' A connection handler that reads one message, sends back the same
-    message, then exits. '''
     try:
         msg = await conn.get_message()
         await conn.send_message(msg)
@@ -391,7 +386,7 @@ async def test_wrap_server_stream(nursery):
         await client.send_message('Hello from client!')
 
 
-@fail_after(MAX_TIMEOUT_TEST_DURATION)
+@fail_after(TIMEOUT_TEST_MAX_DURATION)
 async def test_client_open_timeout(nursery, autojump_clock):
     '''
     The client times out waiting for the server to complete the opening
@@ -411,7 +406,7 @@ async def test_client_open_timeout(nursery, autojump_clock):
             pass
 
 
-@fail_after(MAX_TIMEOUT_TEST_DURATION)
+@fail_after(TIMEOUT_TEST_MAX_DURATION)
 async def test_client_close_timeout(nursery, autojump_clock):
     '''
     This client times out waiting for the server to complete the closing
@@ -430,7 +425,8 @@ async def test_client_close_timeout(nursery, autojump_clock):
         pytest.fail('Should not reach this line.')
 
     server = await nursery.start(
-        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None,
+        message_queue_size=0))
 
     with pytest.raises(trio.TooSlowError):
         async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
@@ -438,7 +434,7 @@ async def test_client_close_timeout(nursery, autojump_clock):
             await client_ws.send_message('test')
 
 
-@fail_after(MAX_TIMEOUT_TEST_DURATION)
+@fail_after(TIMEOUT_TEST_MAX_DURATION)
 async def test_server_open_timeout(autojump_clock):
     '''
     The server times out waiting for the client to complete the opening
@@ -470,7 +466,7 @@ async def test_server_open_timeout(autojump_clock):
         nursery.cancel_scope.cancel()
 
 
-@fail_after(MAX_TIMEOUT_TEST_DURATION)
+@fail_after(TIMEOUT_TEST_MAX_DURATION)
 async def test_server_close_timeout(autojump_clock):
     '''
     The server times out waiting for the client to complete the closing
@@ -488,7 +484,7 @@ async def test_server_close_timeout(autojump_clock):
         ws = await request.accept()
         # Send one message to block the client's reader task:
         await ws.send_message('test')
-    import logging
+
     async with trio.open_nursery() as outer:
         server = await outer.start(partial(serve_websocket, handler, HOST, 0,
             ssl_context=None, handler_nursery=outer,
@@ -523,7 +519,6 @@ async def test_client_does_not_close_handshake(nursery):
         with pytest.raises(ConnectionClosed):
             await server_ws.get_message()
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
-    port = server.port
     stream = await trio.open_tcp_stream(HOST, server.port)
     client_ws = await wrap_client_stream(nursery, stream, HOST, RESOURCE)
     async with client_ws:
@@ -566,12 +561,14 @@ async def test_server_handler_exit(nursery, autojump_clock):
             assert exc.reason.name == 'NORMAL_CLOSURE'
 
 
-@pytest.mark.skip(reason='Hangs because channel size is hard coded to 0')
+@fail_after(DEFAULT_TEST_MAX_DURATION)
 async def test_read_messages_after_remote_close(nursery):
     '''
     When the remote endpoint closes, the local endpoint can still read all
     of the messages sent prior to closing. Any attempt to read beyond that will
     raise ConnectionClosed.
+
+    This test also exercises the configuration of the queue size.
     '''
     server_closed = trio.Event()
 
@@ -585,7 +582,10 @@ async def test_read_messages_after_remote_close(nursery):
     server = await nursery.start(
         partial(serve_websocket, handler, HOST, 0, ssl_context=None))
 
-    async with open_websocket(HOST, server.port, '/', use_ssl=False) as client:
+    # The client needs a message queue of size 2 so that it can buffer both
+    # incoming messages without blocking the reader task.
+    async with open_websocket(HOST, server.port, '/', use_ssl=False,
+            message_queue_size=2) as client:
         await server_closed.wait()
         assert await client.get_message() == '1'
         assert await client.get_message() == '2'
@@ -618,12 +618,49 @@ async def test_no_messages_after_local_close(nursery):
     client_closed.set()
 
 
-async def test_client_cm_exit_with_pending_messages(echo_server, autojump_clock):
+async def test_cm_exit_with_pending_messages(echo_server, autojump_clock):
+    '''
+    Regression test for #74, where a context manager was not able to exit when
+    there were pending messages in the receive queue.
+    '''
     with trio.fail_after(1):
         async with open_websocket(HOST, echo_server.port, RESOURCE,
                 use_ssl=False) as ws:
             await ws.send_message('hello')
             # allow time for the server to respond
             await trio.sleep(.1)
-            # bug: context manager exit is blocked on unconsumed message
-            #await ws.get_message()
+
+
+@fail_after(DEFAULT_TEST_MAX_DURATION)
+async def test_max_message_size(nursery):
+    '''
+    Set the client's max message size to 100 bytes. The client can send a
+    message larger than 100 bytes, but when it receives a message larger than
+    100 bytes, it closes the connection with code 1009.
+    '''
+    async def handler(request):
+        ''' Similar to the echo_request_handler fixture except it runs in a
+        loop. '''
+        conn = await request.accept()
+        while True:
+            try:
+                msg = await conn.get_message()
+                await conn.send_message(msg)
+            except ConnectionClosed:
+                break
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+            max_message_size=100) as client:
+        # We can send and receive 100 bytes:
+        await client.send_message(b'A' * 100)
+        msg = await client.get_message()
+        assert len(msg) == 100
+        # We can send 101 bytes but cannot receive 101 bytes:
+        await client.send_message(b'B' * 101)
+        with pytest.raises(ConnectionClosed):
+            await client.get_message()
+        assert client.closed
+        assert client.closed.code == 1009

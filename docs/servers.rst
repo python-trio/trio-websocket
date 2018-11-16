@@ -41,7 +41,9 @@ host/port to bind to. The handler function receives a
 :class:`WebSocketRequest` object, and it calls the request's
 :func:`~WebSocketRequest.accept` method to finish the handshake and obtain a
 :class:`WebSocketConnection` object. When the handler function exits, the
-connection is automatically closed.
+connection is automatically closed. If the handler function raises an
+exception, the server will silently close the connection and cancel the
+tasks belonging to it.
 
 .. autofunction:: serve_websocket
 
