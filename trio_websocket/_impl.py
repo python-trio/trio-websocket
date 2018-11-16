@@ -19,7 +19,7 @@ from yarl import URL
 from .version import __version__
 
 
-CONN_TIMEOUT = 30 # default connect & disconnect timeout, in seconds
+CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 RECEIVE_BYTES = 4096
 logger = logging.getLogger('trio-websocket')
 

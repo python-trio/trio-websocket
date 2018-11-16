@@ -19,136 +19,152 @@ internal timeouts. Instead, it encourages the caller to enforce timeouts, which
 makes timeout code easier to compose and reason about.
 
 On the other hand, this library is intended to be safe to use, and omitting
-timeouts could be a dangerous flaw. Therefore, this library contains takes a
-balanced approach to timeouts, where high-level APIs have internal timeouts, but
-you may disable them or use lower-level APIs if you want more control over the
-behavior.
+timeouts could be a dangerous flaw. Therefore, this library takes a balanced
+approach to timeouts, where high-level APIs have internal timeouts, but you may
+disable them or use lower-level APIs if you want more control over the behavior.
 
-Built-in Client Timeouts
-------------------------
+Message Timeouts
+----------------
 
-The high-level client APIs :func:`open_websocket` and :func:`open_websocket_url`
-contain built-in timeouts for connecting to a WebSocket and disconnecting from a
-WebSocket. These timeouts are built-in for two reasons:
-
-1. Omitting timeouts may be dangerous, and this library strives to make safe
-   code easy to write.
-2. These high-level APIs are context managers, and composing timeouts with
-   context managers is tricky.
-
-These built-in timeouts make it easy to write a WebSocket client that won't hang
-indefinitely if the remote endpoint or network are misbehaving. The following
-example shows a connect timeout of 10 seconds. This guarantees that the block
-will start executing (reaching the line that prints "Connected") within 10
-seconds. When the context manager exits after the ``print(Received response:
-…)``, the disconnect timeout guarantees that it will take no more than 5 seconds
-to reach the line that prints "Disconnected". If either timeout is exceeded,
-then the entire block raises ``trio.TooSlowError``.
+As a motivating example, let's write a client that sends one message and then
+expects to receive one message. To guard against a misbehaving server or
+network, we want to place a 15 second timeout on this combined send/receive
+operation. In other libraries, you might find that the APIs have ``timeout``
+arguments, but that style of timeout is very tedious when composing multiple
+operations. In Trio, we have helpful abstractions like cancel scopes, allowing
+us to implement our example like this:
 
 .. code-block:: python
 
-    async with open_websocket_url('ws://my.example/', connect_timeout=10,
-            disconnect_timeout=5) as ws:
-        print("Connected")
-        await ws.send_message('hello from client!')
-        response = await ws.get_message()
-        print('Received response: {}'.format(response))
-    print("Disconnected")
-
-.. note::
-
-    The built-in timeouts do not affect the contents of the block! In this
-    example, the client waits to receive a message. If the server never sends a
-    message, then the client will block indefinitely on ``ws.get_message()``.
-    Placing timeouts inside blocks is discussed below.
-
-What if you decided that you really wanted to manage the timeouts yourself? The
-following example implements the same timeout behavior explicitly, without
-relying on the library's built-in timeouts.
-
-.. code-block:: python
-
-    with trio.move_on_after(10) as cancel_scope:
-        async with open_websocket_url('ws://my.example',
-                connect_timeout=math.inf, disconnect_timeout=math.inf):
-            print("Connected")
-            cancel_scope.deadline = math.inf
-            await ws.send_message('hello from client!')
-            response = await ws.get_message()
-            print('Received response: {}'.format(response))
-            cancel_scope.deadline = trio.current_time() + 5
-        print("Disconnected")
-
-Notice that the library's internal timeouts are disabled by passing
-``math.inf``. This example is less ergonomic than using the built-in timeouts.
-If you really want to customize this behavior, you may want to use the low-level
-APIs instead, which are discussed below.
-
-Timeouts Inside Blocks
-----------------------
-
-The built-in timeouts do not apply to the contents of the block. One of the
-examples above would hang on ``ws.get_message()`` if the remote endpoint never
-sends a message. If you want to enforce a timeout in this situation, you must to
-do it explicitly:
-
-.. code-block:: python
-
-    async with open_websocket_url('ws://my.example/', connect_timeout=10,
-            disconnect_timeout=5) as ws:
+    async with open_websocket_url('ws://my.example/') as ws:
         with trio.fail_after(15):
+            await ws.send_message('test')
             msg = await ws.get_message()
             print('Received message: {}'.format(msg))
 
-This example waits up to 15 seconds to get one message from the server, raising
-``trio.TooSlowError`` if the timeout is exceeded. Notice in this example that
-the message timeout is larger than the connect and disconnect timeouts,
-illustrating that the connect and disconnect timeouts do not apply to the
-contents of the block.
+The 15 second timeout covers the cumulative time to send one message and to wait
+for one response. It raises ``TooSlowError`` if the runtime exceeds 15 seconds.
 
-Alternatively, you might apply one timeout to the entire operation: connect to
-the server, get one message, and disconnect.
+Connection Timeouts
+-------------------
+
+The example in the previous section ignores one obvious problem: what if
+connecting to the server or closing the connection takes a long time? How do we
+apply a timeout to those operations? One option is to put the entire connection
+inside a cancel scope:
 
 .. code-block:: python
 
     with trio.fail_after(15):
-        async with open_websocket_url('ws://my.example/',
-                connect_timeout=math.inf, disconnect_timeout=math.inf) as ws:
+        async with open_websocket_url('ws://my.example/') as ws:
+            await ws.send_message('test')
             msg = await ws.get_message()
             print('Received message: {}'.format(msg))
 
-Note that the internal timeouts are disabled in this example.
+The approach suffices if we want to compose all four operations into one
+timeout: connect, send message, get message, and disconnect. But this approach
+will not work if want to separate the timeouts for connecting/disconnecting from
+the timeouts for sending and receiving. Let's write a new client that sends
+messages periodically, waiting up to 15 seconds for a response to each message
+before sending the next message.
+
+.. code-block:: python
+
+    async with open_websocket_url('ws://my.example/') as ws:
+        for _ in range(10):
+            await trio.sleep(30)
+            with trio.fail_after(15):
+                await ws.send_message('test')
+                msg = await ws.get_message()
+                print('Received message: {}'.format(msg))
+
+In this scenario, the ``for`` loop will take at least 300 seconds to run, so we
+would like to specify timeouts that apply to connecting and disconnecting but do
+not apply to the contents of the context manager block. This is tricky because
+the connecting and disconnecting are handled automatically inside the context
+manager :func:`open_websocket_url`. Here's one possible approach:
+
+.. code-block:: python
+
+    with trio.fail_after(10) as cancel_scope:
+        async with open_websocket_url('ws://my.example'):
+            cancel_scope.deadline = math.inf
+            for _ in range(10):
+                await trio.sleep(30)
+                with trio.fail_after(15):
+                    await ws.send_message('test')
+                    msg = await ws.get_message()
+                    print('Received message: {}'.format(msg))
+            cancel_scope.deadline = trio.current_time() + 5
+
+This example places a 10 second timeout on connecting and a separate 5 second
+timeout on disconnecting. This is accomplished by wrapping the entire operation
+in a cancel scope and then modifying the cancel scope's deadline when entering
+and exiting the context manager block.
+
+This approach works but it is a bit complicated, and we don't want our safety
+mechanisms to be complicated! Therefore, the high-level client APIs
+:func:`open_websocket` and :func:`open_websocket_url` contain internal timeouts
+that apply only to connecting and disconnecting. Let's rewrite the previous
+example to use the library's internal timeouts:
+
+.. code-block:: python
+
+    async with open_websocket_url('ws://my.example/', connect_timeout=10,
+            disconnect_timeout=5) as ws:
+        for _ in range(10):
+            await trio.sleep(30)
+            with trio.fail_after(15):
+                await ws.send_message('test')
+                msg = await ws.get_message()
+                print('Received message: {}'.format(msg))
+
+Just like the previous example, this puts a 10 second timeout on connecting, a
+separate 5 second timeout on disconnecting. These internal timeouts violate the
+Trio philosophy of composable timeouts, but hopefully the examples in this
+section have convinced you that breaking the rules a bit is justified by the
+improved safety and ergonomics of this version.
+
+In fact, these timeouts have actually been present in all of our examples so
+far! We just didn't see them because those arguments have default values. If you
+really don't like the internal timeouts, you can disable them by passing
+``math.inf``, or you can use the low-level APIs instead.
 
 Timeouts on Low-level APIs
 --------------------------
 
-We saw an example above where explicit timeouts were applied to the context
-managers. In practice, if you need to customize timeout behavior, the low-level
-APIs like :func:`connect_websocket_url` etc. will be clearer and easier to use.
-This example implements the same timeouts above using the low-level APIs.
+In the previous section, we saw how the library's high-level APIs have internal
+timeouts. The low-level APIs, like :func:`connect_websocket` and
+:func:`connect_websocket_url` do not have internal timeouts, nor are they
+context managers. These characteristics make the low-level APIs suitable for
+situations where you want very fine-grained control over timeout behavior.
 
 .. code-block:: python
 
-    with trio.fail_after(10):
-        connection = await connect_websocket_url('ws://my.example/')
-    print("Connected")
-    try:
-        await ws.send_message('hello from client!')
-        response = await ws.get_message()
-        print('Received response: {}'.format(response))
-    finally:
-        with trio.fail_after(5):
-            await connection.aclose()
-        print("Disconnected")
+    async with trio.open_nursery():
+        with trio.fail_after(10):
+            connection = await connect_websocket_url(nursery, 'ws://my.example/')
+        try:
+            for _ in range(10):
+                await trio.sleep(30)
+                with trio.fail_after(15):
+                    await ws.send_message('test')
+                    msg = await ws.get_message()
+                    print('Received message: {}'.format(msg))
+        finally:
+            with trio.fail_after(5):
+                await connection.aclose()
 
-The low-level APIs make the timeout code easier to read, but we also have to add
-try/finally blocks if we want the same behavior that the context manager
-guarantees.
+This example applies the same 10 second timeout for connecting and 5 second
+timeout for disconnecting as seen in the previous section, but it uses the
+lower-level APIs. This approach gives you more control but the low-level APIs
+also require more boilerplate, such as creating a nursery and using try/finally
+to ensure that the connection is always closed.
 
-Built-in Server Timeouts
-------------------------
+Server Timeouts
+---------------
 
-The server API also offer built-in timeouts. These timeouts are configured when
+The server API also has internal timeouts. These timeouts are configured when
 the server is created, and they are enforced on each connection.
 
 .. code-block:: python
@@ -162,19 +178,20 @@ the server is created, and they are enforced on each connection.
         connect_timeout=10, disconnect_timeout=5)
 
 The server timeouts work slightly differently from the client timeouts. The
-connect timeout measures the time between when a TCP connection is received and
-when the user's handler is called. As a consequence, the connect timeout
-includes waiting for the client's side of the handshake, which is represented by
-the ``request`` object. *It does not include the server's side of the
-handshake,* because the server handshake needs to be performed inside the user's
-handler, i.e. ``await request.accept()``. The disconnect timeout applies to the
+server's connect timeout measures the time between receiving a new TCP
+connection and calling the user's handler. The connect timeout
+includes waiting for the client's side of the handshake (which is represented by
+the ``request`` object), *but it does not include the server's side of the
+handshake.* The server handshake needs to be performed inside the user's
+handler, e.g. ``await request.accept()``. The disconnect timeout applies to the
 time between the handler exiting and the connection being closed.
 
 Each handler is spawned inside of a nursery, so there is no way for connect and
-disconnect timeouts to raise exceptions to your code. Instead, connect timeouts
-result cause the connection to be silently closed, and handler is never called.
-For disconnect timeouts, your handler has already exited, so a timeout will
-cause the connection to be silently closed.
+disconnect timeouts to raise exceptions to your code. (If they did raise
+exceptions, they would cancel your nursery and crash your server!) Instead,
+connect timeouts cause the connection to be silently closed, and the handler is
+never called. For disconnect timeouts, your handler has already exited, so a
+timeout will cause the connection to be silently closed.
 
 As with the client APIs, you can disable the internal timeouts by passing
-``math.inf``.
+``math.inf`` or you can use low-level APIs like :func:`wrap_server_stream`.

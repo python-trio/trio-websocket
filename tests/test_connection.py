@@ -103,8 +103,8 @@ async def echo_conn_handler(conn):
 
 
 class fail_after:
-    ''' This decorator fails a if its runtime (as measured by the Trio clock)
-    exceeds the specified value. '''
+    ''' This decorator fails if the runtime of the decorated function (as
+    measured by the Trio clock) exceeds the specified value. '''
     def __init__(self, seconds):
         self._seconds = seconds
 
