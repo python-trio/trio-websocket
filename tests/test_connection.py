@@ -1,4 +1,35 @@
-from functools import partial
+'''
+Unit tests for trio_websocket.
+
+Many of these tests involve networking, i.e. real TCP sockets. To maximize
+reliability, all networking tests should follow the following rules:
+
+- Use localhost only. This is stored in the ``HOST`` global variable.
+- Servers use dynamic ports: by passing zero as a port, the system selects a
+  port that is guaranteed to be available.
+- The sequence of events between servers and clients should be controlled as
+  much as possible to make tests as deterministic. More on determinism below.
+- If a test involves timing, e.g. a task needs to ``trio.sleep(…)`` for a bit,
+  then the ``autojump_clock`` fixture should be used.
+- Most tests that involve I/O should have an absolute timeout placed on it to
+  prevent a hung test from blocking the entire test suite. If a hung test is
+  cancelled with ctrl+C, then PyTest discards its log messages, which makes
+  debugging really difficult! The ``fail_after(…)`` decorator places an absolute
+  timeout on test execution that as measured by Trio's clock.
+
+`Read more about writing tests with pytest-trio.
+<https://pytest-trio.readthedocs.io/en/latest/>`__
+
+Determinism is an important property of tests, but it can be tricky to
+accomplish with network tests. For example, if a test has a client and a server,
+then they may race each other to close the connection first. The test author
+should select one side to always initiate the closing handshake. For example, if
+a test needs to ensure that the client closes first, then it can have the server
+call ``ws.get_message()`` without actually sending it a message. This will cause
+the server to block until the client has sent the closing handshake. In other
+circumstances
+'''
+from functools import partial, wraps
 
 import attr
 import pytest
@@ -22,6 +53,15 @@ from trio_websocket._impl import ListenPort
 
 HOST = '127.0.0.1'
 RESOURCE = '/resource'
+
+# Timeout tests follow a general pattern: one side waits TIMEOUT seconds for an
+# event. The other side delays for FORCE_TIMEOUT seconds to force the timeout
+# to trigger. Each test also has maximum runtime (measure by Trio's clock) to
+# prevent a faulty test from hanging the entire suite.
+TIMEOUT = 1
+FORCE_TIMEOUT = 2
+MAX_TIMEOUT_TEST_DURATION = 3
+
 
 @pytest.fixture
 @async_generator
@@ -60,6 +100,23 @@ async def echo_conn_handler(conn):
         await conn.send_message(msg)
     except ConnectionClosed:
         pass
+
+
+class fail_after:
+    ''' This decorator fails if the runtime of the decorated function (as
+    measured by the Trio clock) exceeds the specified value. '''
+    def __init__(self, seconds):
+        self._seconds = seconds
+
+    def __call__(self, fn):
+        @wraps(fn)
+        async def wrapper(*args, **kwargs):
+            with trio.move_on_after(self._seconds) as cancel_scope:
+                await fn(*args, **kwargs)
+            if cancel_scope.cancelled_caught:
+                pytest.fail('Test runtime exceeded the maximum {} seconds'
+                    .format(self._seconds))
+        return wrapper
 
 
 @attr.s(hash=False, cmp=False)
@@ -332,6 +389,132 @@ async def test_wrap_server_stream(nursery):
     port = listeners[0].socket.getsockname()[1]
     async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
         await client.send_message('Hello from client!')
+
+
+@fail_after(MAX_TIMEOUT_TEST_DURATION)
+async def test_client_open_timeout(nursery, autojump_clock):
+    '''
+    The client times out waiting for the server to complete the opening
+    handshake.
+    '''
+    async def handler(request):
+        await trio.sleep(FORCE_TIMEOUT)
+        server_ws = await request.accept()
+        pytest.fail('Should not reach this line.')
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    with pytest.raises(trio.TooSlowError):
+        async with open_websocket(HOST, server.port, '/', use_ssl=False,
+                connect_timeout=TIMEOUT) as client_ws:
+            pass
+
+
+@fail_after(MAX_TIMEOUT_TEST_DURATION)
+async def test_client_close_timeout(nursery, autojump_clock):
+    '''
+    This client times out waiting for the server to complete the closing
+    handshake.
+
+    To slow down the server's closing handshake, we make sure that its message
+    queue size is 0, and the client sends it exactly 1 message. This blocks the
+    server's reader so it won't do the closing handshake for at least
+    ``FORCE_TIMEOUT`` seconds.
+    '''
+    async def handler(request):
+        server_ws = await request.accept()
+        await trio.sleep(FORCE_TIMEOUT)
+        # The next line should raise ConnectionClosed.
+        await server_ws.get_message()
+        pytest.fail('Should not reach this line.')
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    with pytest.raises(trio.TooSlowError):
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+                disconnect_timeout=TIMEOUT) as client_ws:
+            await client_ws.send_message('test')
+
+
+@fail_after(MAX_TIMEOUT_TEST_DURATION)
+async def test_server_open_timeout(autojump_clock):
+    '''
+    The server times out waiting for the client to complete the opening
+    handshake.
+
+    Server timeouts don't raise exceptions, because handler tasks are launched
+    in an internal nursery and sending exceptions wouldn't be helpful. Instead,
+    timed out tasks silently end.
+    '''
+    async def handler(request):
+        pytest.fail('This handler should not be called.')
+
+    async with trio.open_nursery() as nursery:
+        server = await nursery.start(partial(serve_websocket, handler, HOST, 0,
+            ssl_context=None, handler_nursery=nursery, connect_timeout=TIMEOUT))
+
+        old_task_count = len(nursery.child_tasks)
+        # This stream is not a WebSocket, so it won't send a handshake:
+        stream = await trio.open_tcp_stream(HOST, server.port)
+        # Checkpoint so the server's handler task can spawn:
+        await trio.sleep(0)
+        assert len(nursery.child_tasks) == old_task_count + 1, \
+            "Server's reader task did not spawn"
+        # Sleep long enough to trigger server's connect_timeout:
+        await trio.sleep(FORCE_TIMEOUT)
+        assert len(nursery.child_tasks) == old_task_count, \
+            "Server's reader task is still running"
+        # Cancel the server task:
+        nursery.cancel_scope.cancel()
+
+
+@fail_after(MAX_TIMEOUT_TEST_DURATION)
+async def test_server_close_timeout(autojump_clock):
+    '''
+    The server times out waiting for the client to complete the closing
+    handshake.
+
+    Server timeouts don't raise exceptions, because handler tasks are launched
+    in an internal nursery and sending exceptions wouldn't be helpful. Instead,
+    timed out tasks silently end.
+
+    To prevent the client from doing the closing handshake, we make sure that
+    its message queue size is 0 and the server sends it exactly 1 message. This
+    blocks the client's reader and prevents it from doing the client handshake.
+    '''
+    async def handler(request):
+        ws = await request.accept()
+        # Send one message to block the client's reader task:
+        await ws.send_message('test')
+    import logging
+    async with trio.open_nursery() as outer:
+        server = await outer.start(partial(serve_websocket, handler, HOST, 0,
+            ssl_context=None, handler_nursery=outer,
+            disconnect_timeout=TIMEOUT))
+
+        old_task_count = len(outer.child_tasks)
+        # Spawn client inside an inner nursery so that we can cancel it's reader
+        # so that it won't do a closing handshake.
+        async with trio.open_nursery() as inner:
+            ws = await connect_websocket(inner, HOST, server.port, RESOURCE,
+                use_ssl=False)
+            # Checkpoint so the server can spawn a handler task:
+            await trio.sleep(0)
+            assert len(outer.child_tasks) == old_task_count + 1, \
+                "Server's reader task did not spawn"
+            # The client waits long enough to trigger the server's disconnect
+            # timeout:
+            await trio.sleep(FORCE_TIMEOUT)
+            # The server should have cancelled the handler:
+            assert len(outer.child_tasks) == old_task_count, \
+                "Server's reader task is still running"
+            # Cancel the client's reader task:
+            inner.cancel_scope.cancel()
+
+        # Cancel the server task:
+        outer.cancel_scope.cancel()
 
 
 async def test_client_does_not_close_handshake(nursery):

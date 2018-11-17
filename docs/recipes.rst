@@ -42,7 +42,7 @@ feature.
             await trio.sleep(interval)
 
     async def main():
-        async with open_websocket_url('ws://localhost/foo') as ws:
+        async with open_websocket_url('ws://my.example/') as ws:
             async with trio.open_nursery() as nursery:
                 nursery.start_soon(heartbeat, ws, 5, 1)
                 # Your application code goes here:

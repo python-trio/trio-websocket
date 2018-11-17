@@ -18,13 +18,16 @@ from yarl import URL
 
 from .version import __version__
 
+
+CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 RECEIVE_BYTES = 4096
 logger = logging.getLogger('trio-websocket')
 
 
 @asynccontextmanager
 @async_generator
-async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None):
+async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
+    connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
     '''
     Open a WebSocket client connection to a host.
 
@@ -41,12 +44,21 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None):
     :type use_ssl: bool or ssl.SSLContext
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param float connect_timeout: The number of seconds to wait for the
+        connection before timing out.
+    :param float disconnect_timeout: The number of seconds to wait when closing
+        the connection before timing out.
+    :raises trio.TooSlowError: if connecting or disconnecting times out.
     '''
     async with trio.open_nursery() as new_nursery:
-        connection = await connect_websocket(new_nursery, host, port, resource,
-            use_ssl=use_ssl, subprotocols=subprotocols)
-        async with connection:
+        with trio.fail_after(connect_timeout):
+            connection = await connect_websocket(new_nursery, host, port,
+                resource, use_ssl=use_ssl, subprotocols=subprotocols)
+        try:
             await yield_(connection)
+        finally:
+            with trio.fail_after(disconnect_timeout):
+                await connection.aclose()
 
 
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,
@@ -97,7 +109,8 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     return connection
 
 
-def open_websocket_url(url, ssl_context=None, *, subprotocols=None):
+def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
+    connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
     '''
     Open a WebSocket client connection to a URL.
 
@@ -111,6 +124,11 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None):
     :type ssl_context: ssl.SSLContext or None
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param float connect_timeout: The number of seconds to wait for the
+        connection before timing out.
+    :param float disconnect_timeout: The number of seconds to wait when closing
+        the connection before timing out.
+    :raises trio.TooSlowError: if connecting or disconnecting times out.
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
     return open_websocket(host, port, resource, use_ssl=ssl_context,
@@ -209,7 +227,8 @@ async def wrap_server_stream(nursery, stream):
 
 
 async def serve_websocket(handler, host, port, ssl_context, *,
-    handler_nursery=None, task_status=trio.TASK_STATUS_IGNORED):
+    handler_nursery=None, connect_timeout=CONN_TIMEOUT,
+    disconnect_timeout=CONN_TIMEOUT, task_status=trio.TASK_STATUS_IGNORED):
     '''
     Serve a WebSocket over TCP.
 
@@ -233,6 +252,10 @@ async def serve_websocket(handler, host, port, ssl_context, *,
     :type ssl_context: ssl.SSLContext or None
     :param handler_nursery: An optional nursery to spawn handlers and background
         tasks in. If not specified, a new nursery will be created internally.
+    :param float connect_timeout: The number of seconds to wait for a client
+        to finish connection handshake before timing out.
+    :param float disconnect_timeout: The number of seconds to wait for a client
+        to finish the closing handshake before timing out.
     :param task_status: Part of Trio nursery start protocol.
     :returns: This function runs until cancelled.
     '''
@@ -243,7 +266,8 @@ async def serve_websocket(handler, host, port, ssl_context, *,
             ssl_context, host=host, https_compatible=True)
     listeners = await open_tcp_listeners()
     server = WebSocketServer(handler, listeners,
-        handler_nursery=handler_nursery)
+        handler_nursery=handler_nursery, connect_timeout=connect_timeout,
+        disconnect_timeout=disconnect_timeout)
     await server.run(task_status=task_status)
 
 
@@ -498,7 +522,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         Close the WebSocket connection.
 
         This sends a closing frame and suspends until the connection is closed.
-        After calling this method, any futher I/O on this WebSocket (such as
+        After calling this method, any further I/O on this WebSocket (such as
         ``get_message()`` or ``send_message()``) will raise
         ``ConnectionClosed``.
 
@@ -512,7 +536,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # Per AsyncResource interface, calling aclose() on a closed resource
             # should succeed.
             return
-        self._wsproto.close(code=code, reason=reason)
+        # Wsproto will throw an AttributeError if you close it during the
+        # handshake phase. This is an open bug:
+        # https://github.com/python-hyper/wsproto/issues/59
+        try:
+            self._wsproto.close(code=code, reason=reason)
+        except AttributeError:
+            pass
         try:
             await self._recv_channel.aclose()
             await self._write_pending()
@@ -605,6 +635,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._wsproto.send_data(message)
         await self._write_pending()
 
+    def __str__(self):
+        ''' Connection ID and type. '''
+        type_ = 'client' if self.is_client else 'server'
+        return '{}-{}'.format(type_, self._id)
+
     async def _abort_web_socket(self):
         '''
         If a stream is closed outside of this class, e.g. due to network
@@ -655,7 +690,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._close_reason = CloseReason(code, reason)
         exc = ConnectionClosed(self._close_reason)
-        logger.debug('conn#%d websocket closed %r', self._id, exc)
+        logger.debug('%s websocket closed %r', self, exc)
         await self._send_channel.aclose()
 
     async def _get_request(self):
@@ -747,7 +782,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param event:
         '''
-        logger.debug('conn#%d ping %r', self._id, event.payload)
+        logger.debug('%s ping %r', self, event.payload)
         await self._write_pending()
 
     async def _handle_pong_received_event(self, event):
@@ -774,7 +809,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         while self._pings:
             key, event = self._pings.popitem(0)
             skipped = ' [skipped] ' if payload != key else ' '
-            logger.debug('conn#%d pong%s%r', self._id, skipped, key)
+            logger.debug('%s pong%s%r', self, skipped, key)
             event.set()
             if payload == key:
                 break
@@ -802,11 +837,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 event_type = type(event).__name__
                 try:
                     handler = handlers[event_type]
-                    logger.debug('conn#%d received event: %s', self._id,
+                    logger.debug('%s received event: %s', self,
                         event_type)
                     await handler(event)
                 except KeyError:
-                    logger.warning('Received unknown event type: "%s"',
+                    logger.warning('%s received unknown event type: "%s"', self,
                         event_type)
 
             # Get network data.
@@ -816,18 +851,18 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 await self._abort_web_socket()
                 break
             if len(data) == 0:
-                logger.debug('conn#%d received zero bytes (connection closed)',
-                    self._id)
+                logger.debug('%s received zero bytes (connection closed)',
+                    self)
                 # If TCP closed before WebSocket, then record it as an abnormal
                 # closure.
                 if not self._wsproto.closed:
                     await self._abort_web_socket()
                 break
             else:
-                logger.debug('conn#%d received %d bytes', self._id, len(data))
+                logger.debug('%s received %d bytes', self, len(data))
                 self._wsproto.receive_bytes(data)
 
-        logger.debug('conn#%d reader task finished', self._id)
+        logger.debug('%s reader task finished', self)
 
     async def _write_pending(self):
         ''' Write any pending protocol data to the network socket. '''
@@ -836,14 +871,14 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # The reader task and one or more writers might try to send messages
             # at the same time, so we need to synchronize access to this stream.
             async with self._stream_lock:
-                logger.debug('conn#%d sending %d bytes', self._id, len(data))
+                logger.debug('%s sending %d bytes', self, len(data))
                 try:
                     await self._stream.send_all(data)
                 except (trio.BrokenResourceError, trio.ClosedResourceError):
                     await self._abort_web_socket()
                     raise ConnectionClosed(self._close_reason) from None
         else:
-            logger.debug('conn#%d no pending data to send', self._id)
+            logger.debug('%s no pending data to send', self)
 
 
 class ListenPort:
@@ -871,7 +906,8 @@ class WebSocketServer:
     instance and starts some background tasks,
     '''
 
-    def __init__(self, handler, listeners, *, handler_nursery=None):
+    def __init__(self, handler, listeners, *, handler_nursery=None,
+        connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
         '''
         Constructor.
 
@@ -887,12 +923,18 @@ class WebSocketServer:
         :param handler_nursery: An optional nursery to spawn connection tasks
             inside of. If ``None``, then a new nursery will be created
             internally.
+        :param float connect_timeout: The number of seconds to wait for a client
+            to finish connection handshake before timing out.
+        :param float disconnect_timeout: The number of seconds to wait for a client
+            to finish the closing handshake before timing out.
         '''
         if len(listeners) == 0:
             raise ValueError('Listeners must contain at least one item.')
         self._handler = handler
         self._handler_nursery = handler_nursery
         self._listeners = listeners
+        self._connect_timeout = connect_timeout
+        self._disconnect_timeout = disconnect_timeout
 
     @property
     def port(self):
@@ -973,6 +1015,16 @@ class WebSocketServer:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
             connection = WebSocketConnection(stream, wsproto)
             nursery.start_soon(connection._reader_task)
-            async with connection:
+            with trio.move_on_after(self._connect_timeout) as connect_scope:
                 request = await connection._get_request()
+            if connect_scope.cancelled_caught:
+                nursery.cancel_scope.cancel()
+                await stream.aclose()
+                return
+            try:
                 await self._handler(request)
+            finally:
+                with trio.move_on_after(self._disconnect_timeout):
+                    # aclose() will shut down the reader task even if its
+                    # cancelled:
+                    await connection.aclose()
