@@ -51,7 +51,7 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
         ``len()``. If a message is received that is larger than this size,
-        then the connection is closed with code 1009.
+        then the connection is closed with code 1009 (Message Too Big).
     :param float connect_timeout: The number of seconds to wait for the
         connection before timing out.
     :param float disconnect_timeout: The number of seconds to wait when closing
@@ -94,7 +94,7 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
         ``len()``. If a message is received that is larger than this size,
-        then the connection is closed with code 1009.
+        then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
     if use_ssl == True:
@@ -147,7 +147,7 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
         ``len()``. If a message is received that is larger than this size,
-        then the connection is closed with code 1009.
+        then the connection is closed with code 1009 (Message Too Big).
     :param float connect_timeout: The number of seconds to wait for the
         connection before timing out.
     :param float disconnect_timeout: The number of seconds to wait when closing
@@ -182,7 +182,7 @@ async def connect_websocket_url(nursery, url, ssl_context=None, *,
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
         ``len()``. If a message is received that is larger than this size,
-        then the connection is closed with code 1009.
+        then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
@@ -235,7 +235,7 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
         ``len()``. If a message is received that is larger than this size,
-        then the connection is closed with code 1009.
+        then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
     wsproto = wsconnection.WSConnection(wsconnection.CLIENT, host=host,
@@ -262,7 +262,7 @@ async def wrap_server_stream(nursery, stream,
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
         ``len()``. If a message is received that is larger than this size,
-        then the connection is closed with code 1009.
+        then the connection is closed with code 1009 (Message Too Big).
     :type stream: trio.abc.Stream
     :rtype: WebSocketConnection
     '''
@@ -306,7 +306,7 @@ async def serve_websocket(handler, host, port, ssl_context, *,
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
         ``len()``. If a message is received that is larger than this size,
-        then the connection is closed with code 1009.
+        then the connection is closed with code 1009 (Message Too Big).
     :param float connect_timeout: The number of seconds to wait for a client
         to finish connection handshake before timing out.
     :param float disconnect_timeout: The number of seconds to wait for a client
@@ -520,7 +520,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             buffered in the library's internal message queue.
         :param int max_message_size: The maximum message size as measured by
             ``len()``. If a message is received that is larger than this size,
-            then the connection is closed with code 1009.
+            then the connection is closed with code 1009 (Message Too Big).
         '''
         self._close_reason = None
         self._id = next(self.__class__.CONNECTION_ID)
