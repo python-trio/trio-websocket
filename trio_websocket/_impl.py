@@ -20,13 +20,16 @@ from .version import __version__
 
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
-RECEIVE_BYTES = 4096
+MESSAGE_QUEUE_SIZE = 1
+MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
+RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
 
 
 @asynccontextmanager
 @async_generator
 async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
+    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
     connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
     '''
     Open a WebSocket client connection to a host.
@@ -44,6 +47,11 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
     :type use_ssl: bool or ssl.SSLContext
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param int message_queue_size: The maximum number of messages that will be
+        buffered in the library's internal message queue.
+    :param int max_message_size: The maximum message size as measured by
+        ``len()``. If a message is received that is larger than this size,
+        then the connection is closed with code 1009 (Message Too Big).
     :param float connect_timeout: The number of seconds to wait for the
         connection before timing out.
     :param float disconnect_timeout: The number of seconds to wait when closing
@@ -53,7 +61,9 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
     async with trio.open_nursery() as new_nursery:
         with trio.fail_after(connect_timeout):
             connection = await connect_websocket(new_nursery, host, port,
-                resource, use_ssl=use_ssl, subprotocols=subprotocols)
+                resource, use_ssl=use_ssl, subprotocols=subprotocols,
+                message_queue_size=message_queue_size,
+                max_message_size=max_message_size)
         try:
             await yield_(connection)
         finally:
@@ -62,7 +72,8 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
 
 
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,
-    subprotocols=None):
+    subprotocols=None, message_queue_size=MESSAGE_QUEUE_SIZE,
+    max_message_size=MAX_MESSAGE_SIZE):
     '''
     Return an open WebSocket client connection to a host.
 
@@ -79,6 +90,11 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     :type use_ssl: bool or ssl.SSLContext
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param int message_queue_size: The maximum number of messages that will be
+        buffered in the library's internal message queue.
+    :param int max_message_size: The maximum message size as measured by
+        ``len()``. If a message is received that is larger than this size,
+        then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
     if use_ssl == True:
@@ -103,13 +119,16 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
         host_header = '{}:{}'.format(host, port)
     wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
         host=host_header, resource=resource, subprotocols=subprotocols)
-    connection = WebSocketConnection(stream, wsproto, path=resource)
+    connection = WebSocketConnection(stream, wsproto, path=resource,
+        message_queue_size=message_queue_size,
+        max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
     return connection
 
 
 def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
+    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
     connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
     '''
     Open a WebSocket client connection to a URL.
@@ -124,6 +143,11 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
     :type ssl_context: ssl.SSLContext or None
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param int message_queue_size: The maximum number of messages that will be
+        buffered in the library's internal message queue.
+    :param int max_message_size: The maximum message size as measured by
+        ``len()``. If a message is received that is larger than this size,
+        then the connection is closed with code 1009 (Message Too Big).
     :param float connect_timeout: The number of seconds to wait for the
         connection before timing out.
     :param float disconnect_timeout: The number of seconds to wait when closing
@@ -132,11 +156,13 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
     return open_websocket(host, port, resource, use_ssl=ssl_context,
-        subprotocols=subprotocols)
+        subprotocols=subprotocols, message_queue_size=message_queue_size,
+        max_message_size=max_message_size)
 
 
 async def connect_websocket_url(nursery, url, ssl_context=None, *,
-    subprotocols=None):
+    subprotocols=None, message_queue_size=MESSAGE_QUEUE_SIZE,
+    max_message_size=MAX_MESSAGE_SIZE):
     '''
     Return an open WebSocket client connection to a URL.
 
@@ -146,17 +172,24 @@ async def connect_websocket_url(nursery, url, ssl_context=None, *,
     If you don't need a custom nursery, you should probably use
     :func:`open_websocket_url` instead.
 
+    :param nursery: A nursery to run background tasks in.
     :param str url: A WebSocket URL.
     :param ssl_context: Optional SSL context used for ``wss:`` URLs.
     :type ssl_context: ssl.SSLContext or None
-    :param nursery: A nursery to run background tasks in.
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param int message_queue_size: The maximum number of messages that will be
+        buffered in the library's internal message queue.
+    :param int max_message_size: The maximum message size as measured by
+        ``len()``. If a message is received that is larger than this size,
+        then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
     return await connect_websocket(nursery, host, port, resource,
-        use_ssl=ssl_context, subprotocols=subprotocols)
+        use_ssl=ssl_context, subprotocols=subprotocols,
+        message_queue_size=message_queue_size,
+        max_message_size=max_message_size)
 
 
 def _url_to_host(url, ssl_context):
@@ -182,7 +215,8 @@ def _url_to_host(url, ssl_context):
 
 
 async def wrap_client_stream(nursery, stream, host, resource, *,
-    subprotocols=None):
+    subprotocols=None, message_queue_size=MESSAGE_QUEUE_SIZE,
+    max_message_size=MAX_MESSAGE_SIZE):
     '''
     Wrap an arbitrary stream in a WebSocket connection.
 
@@ -197,17 +231,25 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
         accessed on the server.
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param int message_queue_size: The maximum number of messages that will be
+        buffered in the library's internal message queue.
+    :param int max_message_size: The maximum message size as measured by
+        ``len()``. If a message is received that is larger than this size,
+        then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
     wsproto = wsconnection.WSConnection(wsconnection.CLIENT, host=host,
         resource=resource, subprotocols=subprotocols)
-    connection = WebSocketConnection(stream, wsproto, path=resource)
+    connection = WebSocketConnection(stream, wsproto, path=resource,
+        message_queue_size=message_queue_size,
+        max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
     return connection
 
 
-async def wrap_server_stream(nursery, stream):
+async def wrap_server_stream(nursery, stream,
+    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
     '''
     Wrap an arbitrary stream in a server-side WebSocket.
 
@@ -216,18 +258,26 @@ async def wrap_server_stream(nursery, stream):
 
     :param nursery: A nursery to run background tasks in.
     :param stream: A stream to be wrapped.
+    :param int message_queue_size: The maximum number of messages that will be
+        buffered in the library's internal message queue.
+    :param int max_message_size: The maximum message size as measured by
+        ``len()``. If a message is received that is larger than this size,
+        then the connection is closed with code 1009 (Message Too Big).
     :type stream: trio.abc.Stream
     :rtype: WebSocketConnection
     '''
     wsproto = wsconnection.WSConnection(wsconnection.SERVER)
-    connection = WebSocketConnection(stream, wsproto)
+    connection = WebSocketConnection(stream, wsproto,
+        message_queue_size=message_queue_size,
+        max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
     request = await connection._get_request()
     return request
 
 
 async def serve_websocket(handler, host, port, ssl_context, *,
-    handler_nursery=None, connect_timeout=CONN_TIMEOUT,
+    handler_nursery=None, message_queue_size=MESSAGE_QUEUE_SIZE,
+    max_message_size=MAX_MESSAGE_SIZE, connect_timeout=CONN_TIMEOUT,
     disconnect_timeout=CONN_TIMEOUT, task_status=trio.TASK_STATUS_IGNORED):
     '''
     Serve a WebSocket over TCP.
@@ -252,6 +302,11 @@ async def serve_websocket(handler, host, port, ssl_context, *,
     :type ssl_context: ssl.SSLContext or None
     :param handler_nursery: An optional nursery to spawn handlers and background
         tasks in. If not specified, a new nursery will be created internally.
+    :param int message_queue_size: The maximum number of messages that will be
+        buffered in the library's internal message queue.
+    :param int max_message_size: The maximum message size as measured by
+        ``len()``. If a message is received that is larger than this size,
+        then the connection is closed with code 1009 (Message Too Big).
     :param float connect_timeout: The number of seconds to wait for a client
         to finish connection handshake before timing out.
     :param float disconnect_timeout: The number of seconds to wait for a client
@@ -266,7 +321,8 @@ async def serve_websocket(handler, host, port, ssl_context, *,
             ssl_context, host=host, https_compatible=True)
     listeners = await open_tcp_listeners()
     server = WebSocketServer(handler, listeners,
-        handler_nursery=handler_nursery, connect_timeout=connect_timeout,
+        handler_nursery=handler_nursery, message_queue_size=message_queue_size,
+        max_message_size=max_message_size, connect_timeout=connect_timeout,
         disconnect_timeout=disconnect_timeout)
     await server.run(task_status=task_status)
 
@@ -442,7 +498,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto, *, path=None):
+    def __init__(self, stream, wsproto, *, path=None,
+        message_queue_size=MESSAGE_QUEUE_SIZE,
+        max_message_size=MAX_MESSAGE_SIZE):
         '''
         Constructor.
 
@@ -458,17 +516,25 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :type wsproto: wsproto.connection.WSConnection
         :param str path: The URL path for this connection. Only used for server
             instances.
+        :param int message_queue_size: The maximum number of messages that will be
+            buffered in the library's internal message queue.
+        :param int max_message_size: The maximum message size as measured by
+            ``len()``. If a message is received that is larger than this size,
+            then the connection is closed with code 1009 (Message Too Big).
         '''
         self._close_reason = None
         self._id = next(self.__class__.CONNECTION_ID)
         self._stream = stream
         self._stream_lock = trio.StrictFIFOLock()
         self._wsproto = wsproto
+        self._message_size = 0
         self._message_parts = []  # type: List[bytes|str]
+        self._max_message_size = max_message_size
         self._reader_running = True
         self._path = path
         self._subprotocol = None
-        self._send_channel, self._recv_channel = trio.open_memory_channel(0)
+        self._send_channel, self._recv_channel = trio.open_memory_channel(
+            message_queue_size)
         self._pings = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
@@ -551,6 +617,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # If cancelled during WebSocket close, make sure that the underlying
             # stream is closed.
             await self._close_stream()
+
 
     async def get_message(self):
         '''
@@ -760,10 +827,22 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param event:
         '''
+        self._message_size += len(event.data)
         self._message_parts.append(event.data)
-        if event.message_finished:
+        if self._message_size > self._max_message_size:
+            err = 'Exceeded maximum message size: {} bytes'.format(
+                self._max_message_size)
+            self._message_size = 0
+            self._message_parts = []
+            self._close_reason = CloseReason(1009, err)
+            self._wsproto.close(code=1009, reason=err)
+            await self._write_pending()
+            await self._recv_channel.aclose()
+            self._reader_running = False
+        elif event.message_finished:
             msg = (b'' if isinstance(event, BytesReceived) else '') \
                 .join(self._message_parts)
+            self._message_size = 0
             self._message_parts = []
             try:
                 await self._send_channel.send(msg)
@@ -860,7 +939,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 break
             else:
                 logger.debug('%s received %d bytes', self, len(data))
-                self._wsproto.receive_bytes(data)
+                if not self._wsproto.closed:
+                    self._wsproto.receive_bytes(data)
 
         logger.debug('%s reader task finished', self)
 
@@ -907,7 +987,9 @@ class WebSocketServer:
     '''
 
     def __init__(self, handler, listeners, *, handler_nursery=None,
-        connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
+        message_queue_size=MESSAGE_QUEUE_SIZE,
+        max_message_size=MAX_MESSAGE_SIZE, connect_timeout=CONN_TIMEOUT,
+        disconnect_timeout=CONN_TIMEOUT):
         '''
         Constructor.
 
@@ -933,6 +1015,8 @@ class WebSocketServer:
         self._handler = handler
         self._handler_nursery = handler_nursery
         self._listeners = listeners
+        self._message_queue_size = message_queue_size
+        self._max_message_size = max_message_size
         self._connect_timeout = connect_timeout
         self._disconnect_timeout = disconnect_timeout
 
@@ -1013,7 +1097,9 @@ class WebSocketServer:
         '''
         async with trio.open_nursery() as nursery:
             wsproto = wsconnection.WSConnection(wsconnection.SERVER)
-            connection = WebSocketConnection(stream, wsproto)
+            connection = WebSocketConnection(stream, wsproto,
+                message_queue_size=self._message_queue_size,
+                max_message_size=self._max_message_size)
             nursery.start_soon(connection._reader_task)
             with trio.move_on_after(self._connect_timeout) as connect_scope:
                 request = await connection._get_request()
