@@ -32,14 +32,16 @@ This example demonstrates how to open a WebSocket URL:
 
 ```python
 import trio
+import logging
 from trio_websocket import open_websocket_url
 
 
 async def main():
     try:
-        async with open_websocket_url('wss://localhost/foo') as ws:
+        async with open_websocket_url('ws://127.0.0.1:8000') as ws:
             await ws.send_message('hello world!')
             message = await ws.get_message()
+            print('Here's what came back: ' + message)
             logging.info('Received message: %s', message)
     except OSError as ose:
         logging.error('Connection attempt failed: %s', ose)
