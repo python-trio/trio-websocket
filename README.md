@@ -41,7 +41,7 @@ async def main():
         async with open_websocket_url('ws://127.0.0.1:8000') as ws:
             await ws.send_message('hello world!')
             message = await ws.get_message()
-            print('Here's what came back: ' + message)
+            print("Here's what came back: " + message)
             logging.info('Received message: %s', message)
     except OSError as ose:
         logging.error('Connection attempt failed: %s', ose)
