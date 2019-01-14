@@ -36,11 +36,9 @@ setup(
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
-        # After modifying dependencies, always rebuild the requirements-dev.txt
-        # file! See developer docs for more details.
         'async_generator>=1.10,<2',
         'ipaddress>=1.0.22,<2',
-        'trio>=0.9,<0.10',
+        'trio>=0.9',
         'wsaccel>=0.6.2,<0.7',
         'wsproto>=0.12,<0.13',
         'yarl>=1.2.6,<2'
