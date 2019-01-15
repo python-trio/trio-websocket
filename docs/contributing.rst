@@ -173,7 +173,7 @@ To release a new version of this library, we follow this process:
 2. Commit ``version.py``.
 3. Create a tag, e.g. ``git tag 1.2.0``.
 4. Push the commit and the tag, e.g. ``git push && git push origin 1.2.0``.
-5. Wait for `Travis CI <https://travis-ci.org/HyperionGray/trio-websocket>`__ to
+5. Wait for `Travis CI <https://travis-ci.com/HyperionGray/trio-websocket>`__ to
    finish building and ensure that the build is successful.
 6. Wait for `Read The Docs <https://trio-websocket.readthedocs.io/en/latest/>`__
    to finish building and ensure that the build is successful.
@@ -181,6 +181,6 @@ To release a new version of this library, we follow this process:
    no changes.
 8. Build package and submit to PyPI: ``make publish``
 9. In ``version.py`` on ``master`` branch, increment the version number to the
-    next expected release and add the ``-dev`` suffix, e.g. change ``1.2.0`` to
-    ``1.3.0-dev``.
+   next expected release and add the ``-dev`` suffix, e.g. change ``1.2.0`` to
+   ``1.3.0-dev``.
 10. Commit and push ``version.py``.

@@ -18,9 +18,9 @@ Autobahn Test Suite <https://github.com/crossbario/autobahn-testsuite>`__.
     :alt: Python Versions
 .. image:: https://img.shields.io/github/license/HyperionGray/trio-websocket.svg?style=flat-square
     :alt: MIT License
-.. image:: https://img.shields.io/travis/HyperionGray/trio-websocket.svg?style=flat-square
+.. image:: https://img.shields.io/travis/com/HyperionGray/trio-websocket.svg?style=flat-square&branch=master
     :alt: Build Status
-    :target: https://travis-ci.org/HyperionGray/trio-websocket
+    :target: https://travis-ci.com/HyperionGray/trio-websocket
 .. image:: https://img.shields.io/coveralls/github/HyperionGray/trio-websocket.svg?style=flat-square
     :alt: Coverage
     :target: https://coveralls.io/github/HyperionGray/trio-websocket?branch=master
