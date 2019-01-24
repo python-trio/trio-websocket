@@ -613,6 +613,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
             await self._recv_channel.aclose()
             await self._write_pending()
             await self._close_handshake.wait()
+        except ConnectionClosed:
+            # If _write_pending() raised ConnectionClosed, then we can bail out.
+            pass
         finally:
             # If cancelled during WebSocket close, make sure that the underlying
             # stream is closed.
@@ -908,7 +911,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         if self.is_client:
             # Clients need to initiate the negotiation:
-            await self._write_pending()
+            try:
+                await self._write_pending()
+            except ConnectionClosed:
+                self._reader_running = False
 
         while self._reader_running:
             # Process events.
@@ -922,6 +928,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 except KeyError:
                     logger.warning('%s received unknown event type: "%s"', self,
                         event_type)
+                except ConnectionClosed:
+                    self._reader_running = False
+                    break
 
             # Get network data.
             try:
