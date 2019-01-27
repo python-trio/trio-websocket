@@ -544,6 +544,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
         # Set once a WebSocket closed handshake takes place, i.e after a close
         # frame has been sent and a close frame has been received.
         self._close_handshake = trio.Event()
+        # Set immediately upon receiving closed event from peer.  Used to
+        # test close race conditions between client and server.
+        self._for_testing_peer_closed_connection = trio.Event()
 
     @property
     def closed(self):
@@ -807,6 +810,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param event:
         '''
+        self._for_testing_peer_closed_connection.set()
+        await trio.sleep(0)
         await self._write_pending()
         await self._close_web_socket(event.code, event.reason or None)
         self._close_handshake.set()
