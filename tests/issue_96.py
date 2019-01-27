@@ -81,7 +81,7 @@ async def handler(request):
     try:
         ws = await request.accept()
         await ws.send_message('issue96')
-        await trio.sleep(random()/1000)
+        await ws._for_testing_peer_closed_connection.wait()
         await trio.aclose_forcefully(ws._stream)
     except ConnectionClosed:
         pass
@@ -93,13 +93,14 @@ async def main():
             ssl_context=None)
         await nursery.start(serve)
 
-        for n in range(1000):
+        for n in range(1):
             logging.info('Connection %d', n)
             try:
                 connection = await connect_websocket(nursery, 'localhost', 8000,
                     '/', use_ssl=False)
                 await connection.get_message()
                 await connection.aclose()
+                await trio.sleep(.1)
             except ConnectionClosed:
                 pass
 
