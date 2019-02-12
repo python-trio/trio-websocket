@@ -30,6 +30,7 @@ the server to block until the client has sent the closing handshake. In other
 circumstances
 '''
 from functools import partial, wraps
+import ssl
 
 import attr
 import pytest
@@ -178,9 +179,8 @@ async def test_serve(nursery):
 
 
 async def test_serve_ssl(nursery):
-    server_context = trio.ssl.create_default_context(
-        trio.ssl.Purpose.CLIENT_AUTH)
-    client_context = trio.ssl.create_default_context()
+    server_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    client_context = ssl.create_default_context()
     ca = trustme.CA()
     ca.configure_trust(client_context)
     cert = ca.issue_server_cert(HOST)
