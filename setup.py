@@ -38,7 +38,7 @@ setup(
     install_requires=[
         'async_generator>=1.10,<2',
         'ipaddress>=1.0.22,<2',
-        'trio>=0.9',
+        'trio>=0.11',
         'wsaccel>=0.6.2,<0.7',
         'wsproto>=0.12,<0.13',
         'yarl>=1.2.6,<2'

@@ -10,7 +10,6 @@ from async_generator import async_generator, yield_, asynccontextmanager
 from ipaddress import ip_address
 import trio
 import trio.abc
-import trio.ssl
 import wsproto.connection as wsconnection
 import wsproto.frame_protocol as wsframeproto
 from wsproto.events import BytesReceived
@@ -1063,7 +1062,7 @@ class WebSocketServer:
             if isinstance(listener, trio.SocketListener):
                 socket = listener.socket
                 is_ssl = False
-            elif isinstance(listener, trio.ssl.SSLListener):
+            elif isinstance(listener, trio.SSLListener):
                 socket = listener.transport_listener.socket
                 is_ssl = True
             else:
