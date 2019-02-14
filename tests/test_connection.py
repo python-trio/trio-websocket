@@ -664,3 +664,23 @@ async def test_max_message_size(nursery):
             await client.get_message()
         assert client.closed
         assert client.closed.code == 1009
+
+
+async def test_close_race(nursery, autojump_clock):
+    """server attempts close just as client disconnects (issue #96)"""
+
+    async def handler(request):
+        ws = await request.accept()
+        await ws.send_message('foo')
+        await ws._for_testing_peer_closed_connection.wait()
+        # with bug, this would raise ConnectionClosed from websocket internal task
+        await trio.aclose_forcefully(ws._stream)
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    connection = await connect_websocket(nursery, HOST, server.port,
+                                         RESOURCE, use_ssl=False)
+    await connection.get_message()
+    await connection.aclose()
+    await trio.sleep(.1)
