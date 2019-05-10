@@ -40,7 +40,7 @@ setup(
         'ipaddress>=1.0.22,<2',
         'trio>=0.11',
         'wsaccel>=0.6.2,<0.7',
-        'wsproto>=0.12,<0.13',
+        'wsproto>=0.14,<0.15',
         'yarl>=1.2.6,<2'
     ],
     project_urls={
