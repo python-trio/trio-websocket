@@ -38,6 +38,7 @@ import trio
 import trustme
 from async_generator import async_generator, yield_
 
+from trio.testing import memory_stream_pair
 from trio_websocket import (
     connect_websocket,
     connect_websocket_url,
@@ -49,7 +50,7 @@ from trio_websocket import (
     wrap_client_stream,
     wrap_server_stream
 )
-from trio_websocket._impl import ListenPort
+from trio_websocket._impl import Endpoint
 
 
 HOST = '127.0.0.1'
@@ -142,24 +143,36 @@ class MemoryListener(trio.abc.Listener):
         await trio.hazmat.checkpoint()
 
 
-async def test_listen_port_ipv4():
-    assert str(ListenPort('10.105.0.2', 80, False)) == 'ws://10.105.0.2:80'
-    assert str(ListenPort('127.0.0.1', 8000, False)) == 'ws://127.0.0.1:8000'
-    assert str(ListenPort('0.0.0.0', 443, True)) == 'wss://0.0.0.0:443'
+async def test_endpoint_ipv4():
+    e1 = Endpoint('10.105.0.2', 80, False)
+    assert e1.url == 'ws://10.105.0.2'
+    assert str(e1) == 'Endpoint(address="10.105.0.2", port=80, is_ssl=False)'
+    e2 = Endpoint('127.0.0.1', 8000, False)
+    assert e2.url == 'ws://127.0.0.1:8000'
+    assert str(e2) == 'Endpoint(address="127.0.0.1", port=8000, is_ssl=False)'
+    e3 = Endpoint('0.0.0.0', 443, True)
+    assert e3.url == 'wss://0.0.0.0'
+    assert str(e3) == 'Endpoint(address="0.0.0.0", port=443, is_ssl=True)'
 
 
 async def test_listen_port_ipv6():
-    assert str(ListenPort('2599:8807:6201:b7:16cf:bb9c:a6d3:51ab', 80, False)) \
-        == 'ws://[2599:8807:6201:b7:16cf:bb9c:a6d3:51ab]:80'
-    assert str(ListenPort('::1', 8000, False)) == 'ws://[::1]:8000'
-    assert str(ListenPort('::', 443, True)) == 'wss://[::]:443'
+    e1 = Endpoint('2599:8807:6201:b7:16cf:bb9c:a6d3:51ab', 80, False)
+    assert e1.url == 'ws://[2599:8807:6201:b7:16cf:bb9c:a6d3:51ab]'
+    assert str(e1) == 'Endpoint(address="2599:8807:6201:b7:16cf:bb9c:a6d3' \
+                      ':51ab", port=80, is_ssl=False)'
+    e2 = Endpoint('::1', 8000, False)
+    assert e2.url == 'ws://[::1]:8000'
+    assert str(e2) == 'Endpoint(address="::1", port=8000, is_ssl=False)'
+    e3 = Endpoint('::', 443, True)
+    assert e3.url == 'wss://[::]'
+    assert str(e3) == 'Endpoint(address="::", port=443, is_ssl=True)'
 
 
 async def test_server_has_listeners(nursery):
     server = await nursery.start(serve_websocket, echo_request_handler, HOST, 0,
         None)
     assert len(server.listeners) > 0
-    assert isinstance(server.listeners[0], ListenPort)
+    assert isinstance(server.listeners[0], Endpoint)
 
 
 async def test_serve(nursery):
@@ -192,6 +205,8 @@ async def test_serve_ssl(nursery):
     async with open_websocket(HOST, port, RESOURCE, use_ssl=client_context
             ) as conn:
         assert not conn.closed
+        assert conn.local.is_ssl
+        assert conn.remote.is_ssl
 
 
 async def test_serve_handler_nursery(nursery):
@@ -277,6 +292,35 @@ async def test_client_connect_url(echo_server, nursery):
     assert not conn.closed
 
 
+async def test_connection_has_endpoints(echo_conn):
+    async with echo_conn:
+        assert isinstance(echo_conn.local, Endpoint)
+        assert str(echo_conn.local.address) == HOST
+        assert echo_conn.local.port > 1024
+        assert not echo_conn.local.is_ssl
+
+        assert isinstance(echo_conn.remote, Endpoint)
+        assert str(echo_conn.remote.address) == HOST
+        assert echo_conn.remote.port > 1024
+        assert not echo_conn.remote.is_ssl
+
+
+@fail_after(1)
+async def test_handshake_has_endpoints(nursery):
+    async def handler(request):
+        assert str(request.local.address) == HOST
+        assert request.local.port == server.port
+        assert not request.local.is_ssl
+        assert str(request.remote.address) == HOST
+        assert not request.remote.is_ssl
+        conn = await request.accept()
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False
+            ) as client_ws:
+        pass
+
+
 async def test_handshake_subprotocol(nursery):
     async def handler(request):
         assert request.proposed_subprotocols == ('chat', 'file')
@@ -297,7 +341,6 @@ async def test_client_send_and_receive(echo_conn):
         await echo_conn.send_message('This is a test message.')
         received_msg = await echo_conn.get_message()
         assert received_msg == 'This is a test message.'
-
 
 
 async def test_client_send_invalid_type(echo_conn):
@@ -366,14 +409,18 @@ async def test_client_nondefault_close(echo_conn):
     assert echo_conn.closed.reason == 'test reason'
 
 
-async def test_wrap_client_stream(echo_server, nursery):
-    stream = await trio.open_tcp_stream(HOST, echo_server.port)
+async def test_wrap_client_stream(nursery):
+    listener = MemoryListener()
+    server = WebSocketServer(echo_request_handler, [listener])
+    await nursery.start(server.run)
+    stream = await listener.connect()
     conn = await wrap_client_stream(nursery, stream, HOST, RESOURCE)
     async with conn:
         assert not conn.closed
         await conn.send_message('Hello from client!')
         msg = await conn.get_message()
         assert msg == 'Hello from client!'
+        assert conn.local.startswith('StapledStream(')
     assert conn.closed
 
 

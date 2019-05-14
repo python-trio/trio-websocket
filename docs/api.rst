@@ -21,7 +21,8 @@ Requests
     .. autoattribute:: headers
     .. autoattribute:: proposed_subprotocols
     .. autoattribute:: subprotocol
-    .. autoattribute:: url
+    .. autoattribute:: local
+    .. autoattribute:: remote
     .. automethod:: accept
 
 Connections
@@ -44,6 +45,8 @@ Connections
     .. autoattribute:: closed
     .. autoattribute:: is_client
     .. autoattribute:: is_server
+    .. autoattribute:: local
+    .. autoattribute:: remote
     .. autoattribute:: path
     .. autoattribute:: subprotocol
 
@@ -77,3 +80,12 @@ Connections
     :members:
 
 .. autoexception:: ConnectionClosed
+
+Utilities
+---------
+
+These are classes that you do not need to instantiate yourself, but you may
+get access to instances of these classes through other APIs.
+
+.. autoclass:: trio_websocket._impl.Endpoint
+    :members:
