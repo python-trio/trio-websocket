@@ -10,9 +10,20 @@ from async_generator import async_generator, yield_, asynccontextmanager
 from ipaddress import ip_address
 import trio
 import trio.abc
-import wsproto.connection as wsconnection
+from wsproto import ConnectionType, WSConnection
+from wsproto.connection import ConnectionState
 import wsproto.frame_protocol as wsframeproto
-from wsproto.events import BytesReceived
+from wsproto.events import (
+    AcceptConnection,
+    BytesMessage,
+    CloseConnection,
+    Ping,
+    Pong,
+    RejectConnection,
+    RejectData,
+    Request,
+    TextMessage,
+)
 from yarl import URL
 
 from .version import __version__
@@ -116,9 +127,9 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
         host_header = host
     else:
         host_header = '{}:{}'.format(host, port)
-    wsproto = wsconnection.WSConnection(wsconnection.CLIENT,
-        host=host_header, resource=resource, subprotocols=subprotocols)
-    connection = WebSocketConnection(stream, wsproto, path=resource,
+    wsproto = WSConnection(ConnectionType.CLIENT)
+    connection = WebSocketConnection(stream, wsproto, host=host_header,
+        path=resource, subprotocols=subprotocols,
         message_queue_size=message_queue_size,
         max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
@@ -237,10 +248,9 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
         then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
-    wsproto = wsconnection.WSConnection(wsconnection.CLIENT, host=host,
-        resource=resource, subprotocols=subprotocols)
-    connection = WebSocketConnection(stream, wsproto, path=resource,
-        message_queue_size=message_queue_size,
+    wsproto = WSConnection(ConnectionType.CLIENT)
+    connection = WebSocketConnection(stream, wsproto, host=host, path=resource,
+        subprotocols=subprotocols, message_queue_size=message_queue_size,
         max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
@@ -265,7 +275,7 @@ async def wrap_server_stream(nursery, stream,
     :type stream: trio.abc.Stream
     :rtype: WebSocketConnection
     '''
-    wsproto = wsconnection.WSConnection(wsconnection.SERVER)
+    wsproto = WSConnection(ConnectionType.SERVER)
     connection = WebSocketConnection(stream, wsproto,
         message_queue_size=message_queue_size,
         max_message_size=max_message_size)
@@ -427,8 +437,8 @@ class WebSocketRequest:
         Constructor.
 
         :param accept_fn: A function to call that will finish the handshake and
-            return a ``WebSocketSconnection``.
-        :type event: wsproto.events.ConnectionRequested
+            return a ``WebSocketConnection``.
+        :type event: wsproto.events.Request
         '''
         self._accept_fn = accept_fn
         self._event = event
@@ -442,7 +452,16 @@ class WebSocketRequest:
 
         :rtype: list[tuple]
         '''
-        return self._event.h11request.headers
+        return self._event.extra_headers
+
+    @property
+    def path(self):
+        '''
+        (Read-only) The requested URL path.
+
+        :rtype: str
+        '''
+        return self._event.target
 
     @property
     def proposed_subprotocols(self):
@@ -451,7 +470,7 @@ class WebSocketRequest:
 
         :rtype: tuple[str]
         '''
-        return tuple(self._event.proposed_subprotocols)
+        return tuple(self._event.subprotocols)
 
     @property
     def subprotocol(self):
@@ -471,17 +490,6 @@ class WebSocketRequest:
         '''
         self._subprotocol = value
 
-    @property
-    def url(self):
-        '''
-        (Read-only) The requested URL. Typically this URL does not contain a
-        scheme, host, or port.
-
-        :rtype: yarl.URL
-        '''
-        return URL(self._event.h11request.target.decode('ascii'))
-
-
     async def accept(self):
         '''
         Finish the handshake with the terms contained in this request and
@@ -497,8 +505,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto, *, path=None,
-        message_queue_size=MESSAGE_QUEUE_SIZE,
+    def __init__(self, stream, wsproto, *, host=None, path=None,
+        subprotocols=(), message_queue_size=MESSAGE_QUEUE_SIZE,
         max_message_size=MAX_MESSAGE_SIZE):
         '''
         Constructor.
@@ -512,9 +520,12 @@ class WebSocketConnection(trio.abc.AsyncResource):
         for you.
 
         :param SocketStream stream:
-        :type wsproto: wsproto.connection.WSConnection
-        :param str path: The URL path for this connection. Only used for server
-            instances.
+        :type wsproto: wsproto.WSConnection
+        :param str host: The hostname to send in the HTTP request headers. Only
+            used for client connections.
+        :param str path: The URL path for this connection.
+        :param list subprotocols: A list of desired subprotocols. Only used for
+            client connections.
         :param int message_queue_size: The maximum number of messages that will be
             buffered in the library's internal message queue.
         :param int max_message_size: The maximum message size as measured by
@@ -530,6 +541,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._message_parts = []  # type: List[bytes|str]
         self._max_message_size = max_message_size
         self._reader_running = True
+        if wsproto.client:
+            self._initial_request = Request(host=host, target=path,
+                subprotocols=subprotocols)
+        else:
+            self._initial_request = None
         self._path = path
         self._subprotocol = None
         self._send_channel, self._recv_channel = trio.open_memory_channel(
@@ -604,19 +620,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # Per AsyncResource interface, calling aclose() on a closed resource
             # should succeed.
             return
-        # Wsproto will throw an AttributeError if you close it during the
-        # handshake phase. This is an open bug:
-        # https://github.com/python-hyper/wsproto/issues/59
         try:
-            self._wsproto.close(code=code, reason=reason)
-        except AttributeError:
-            pass
-        try:
+            if self._wsproto.state == ConnectionState.OPEN:
+                await self._send(CloseConnection(code=code, reason=reason))
             await self._recv_channel.aclose()
-            await self._write_pending()
             await self._close_handshake.wait()
         except ConnectionClosed:
-            # If _write_pending() raised ConnectionClosed, then we can bail out.
+            # If _send() raised ConnectionClosed, then we can bail out.
             pass
         finally:
             # If cancelled during WebSocket close, make sure that the underlying
@@ -676,8 +686,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             payload = struct.pack('!I', random.getrandbits(32))
         event = trio.Event()
         self._pings[payload] = event
-        self._wsproto.ping(payload)
-        await self._write_pending()
+        await self._send(Ping(payload=payload))
         await event.wait()
 
     async def pong(self, payload=None):
@@ -691,8 +700,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
-        self._wsproto.ping(payload)
-        await self._write_pending()
+        await self._send(Pong(payload=payload))
 
     async def send_message(self, message):
         '''
@@ -704,8 +712,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
-        self._wsproto.send_data(message)
-        await self._write_pending()
+        if isinstance(message, str):
+            event = TextMessage(data=message)
+        elif isinstance(message, bytes):
+            event = BytesMessage(data=message)
+        else:
+            raise ValueError('message must be str or bytes')
+        await self._send(event)
 
     def __str__(self):
         ''' Connection ID and type. '''
@@ -720,8 +733,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         state.
         '''
         close_reason = wsframeproto.CloseReason.ABNORMAL_CLOSURE
-        if not self._wsproto.closed:
-            self._wsproto.close(close_reason)
+        if self._wsproto.state == ConnectionState.OPEN:
+            self._wsproto.send(CloseConnection(code=close_reason.value))
         if self._close_reason is None:
             await self._close_web_socket(close_reason)
         self._reader_running = False
@@ -739,9 +752,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :rtype: WebSocketConnection
         '''
         self._subprotocol = proposal.subprotocol
-        self._path = proposal.url.path
-        self._wsproto.accept(proposal._event, self._subprotocol)
-        await self._write_pending()
+        self._path = proposal.path
+        await self._send(AcceptConnection(subprotocol=self._subprotocol))
         self._open_handshake.set()
         return self
 
@@ -783,9 +795,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._connection_proposal = None
         return proposal
 
-    async def _handle_connection_requested_event(self, event):
+    async def _handle_request_event(self, event):
         '''
-        Handle a ConnectionRequested event.
+        Handle a connection request.
 
         This method is async even though it never awaits, because the event
         dispatch requires an async function.
@@ -795,7 +807,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         proposal = WebSocketRequest(self._accept, event)
         self._connection_proposal.set_value(proposal)
 
-    async def _handle_connection_established_event(self, event):
+    async def _handle_accept_connection_event(self, event):
         '''
         Handle a ConnectionEstablished event.
 
@@ -804,35 +816,25 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._subprotocol = event.subprotocol
         self._open_handshake.set()
 
-    async def _handle_connection_closed_event(self, event):
+    async def _handle_close_connection_event(self, event):
         '''
-        Handle a ConnectionClosed event.
+        Handle a close event.
 
-        :param event:
+        :param wsproto.events.CloseConnection event:
         '''
         self._for_testing_peer_closed_connection.set()
         await trio.sleep(0)
-        await self._write_pending()
+        if self._wsproto.state == ConnectionState.REMOTE_CLOSING:
+            await self._send(event.response())
         await self._close_web_socket(event.code, event.reason or None)
         self._close_handshake.set()
 
-    async def _handle_connection_failed_event(self, event):
+    async def _handle_message_event(self, event):
         '''
-        Handle a ConnectionFailed event.
+        Handle a message event.
 
         :param event:
-        '''
-        await self._write_pending()
-        await self._close_web_socket(event.code, event.reason or None)
-        await self._close_stream()
-        self._open_handshake.set()
-        self._close_handshake.set()
-
-    async def _handle_data_received_event(self, event):
-        '''
-        Handle a BytesReceived or TextReceived event.
-
-        :param event:
+        :type event: wsproto.events.BytesMessage or wsproto.events.TextMessage
         '''
         self._message_size += len(event.data)
         self._message_parts.append(event.data)
@@ -842,12 +844,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._message_size = 0
             self._message_parts = []
             self._close_reason = CloseReason(1009, err)
-            self._wsproto.close(code=1009, reason=err)
-            await self._write_pending()
+            await self._send(CloseConnection(code=1009, reason=err))
             await self._recv_channel.aclose()
             self._reader_running = False
         elif event.message_finished:
-            msg = (b'' if isinstance(event, BytesReceived) else '') \
+            msg = (b'' if isinstance(event, BytesMessage) else '') \
                 .join(self._message_parts)
             self._message_size = 0
             self._message_parts = []
@@ -859,19 +860,19 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 # and there's no useful cleanup that we can do here.
                 pass
 
-    async def _handle_ping_received_event(self, event):
+    async def _handle_ping_event(self, event):
         '''
         Handle a PingReceived event.
 
         Wsproto queues a pong frame automatically, so this handler just needs to
         send it.
 
-        :param event:
+        :param wsproto.events.Ping event:
         '''
         logger.debug('%s ping %r', self, event.payload)
-        await self._write_pending()
+        await self._send(event.response())
 
-    async def _handle_pong_received_event(self, event):
+    async def _handle_pong_event(self, event):
         '''
         Handle a PongReceived event.
 
@@ -903,27 +904,26 @@ class WebSocketConnection(trio.abc.AsyncResource):
     async def _reader_task(self):
         ''' A background task that reads network data and generates events. '''
         handlers = {
-            'ConnectionRequested': self._handle_connection_requested_event,
-            'ConnectionFailed': self._handle_connection_failed_event,
-            'ConnectionEstablished': self._handle_connection_established_event,
-            'ConnectionClosed': self._handle_connection_closed_event,
-            'BytesReceived': self._handle_data_received_event,
-            'TextReceived': self._handle_data_received_event,
-            'PingReceived': self._handle_ping_received_event,
-            'PongReceived': self._handle_pong_received_event,
+            AcceptConnection: self._handle_accept_connection_event,
+            BytesMessage: self._handle_message_event,
+            CloseConnection: self._handle_close_connection_event,
+            Ping: self._handle_ping_event,
+            Pong: self._handle_pong_event,
+            Request: self._handle_request_event,
+            TextMessage: self._handle_message_event,
         }
 
-        if self.is_client:
-            # Clients need to initiate the negotiation:
+        # Clients need to initiate the opening handshake.
+        if self._initial_request:
             try:
-                await self._write_pending()
+                await self._send(self._initial_request)
             except ConnectionClosed:
                 self._reader_running = False
 
         while self._reader_running:
             # Process events.
             for event in self._wsproto.events():
-                event_type = type(event).__name__
+                event_type = type(event)
                 try:
                     handler = handlers[event_type]
                     logger.debug('%s received event: %s', self,
@@ -947,31 +947,34 @@ class WebSocketConnection(trio.abc.AsyncResource):
                     self)
                 # If TCP closed before WebSocket, then record it as an abnormal
                 # closure.
-                if not self._wsproto.closed:
+                if self._wsproto.state != ConnectionState.CLOSED:
                     await self._abort_web_socket()
                 break
             else:
                 logger.debug('%s received %d bytes', self, len(data))
-                if not self._wsproto.closed:
-                    self._wsproto.receive_bytes(data)
+                if self._wsproto.state != ConnectionState.CLOSED:
+                    self._wsproto.receive_data(data)
 
         logger.debug('%s reader task finished', self)
 
-    async def _write_pending(self):
-        ''' Write any pending protocol data to the network socket. '''
-        data = self._wsproto.bytes_to_send()
-        if len(data) > 0:
-            # The reader task and one or more writers might try to send messages
-            # at the same time, so we need to synchronize access to this stream.
-            async with self._stream_lock:
-                logger.debug('%s sending %d bytes', self, len(data))
-                try:
-                    await self._stream.send_all(data)
-                except (trio.BrokenResourceError, trio.ClosedResourceError):
-                    await self._abort_web_socket()
-                    raise ConnectionClosed(self._close_reason) from None
-        else:
-            logger.debug('%s no pending data to send', self)
+    async def _send(self, event):
+        '''
+        Send an to the remote WebSocket.
+
+        The reader task and one or more writers might try to send messages at
+        the same time, so this method uses an internal lock to serialize
+        requests to send data.
+
+        :param wsproto.events.Event event:
+        '''
+        data = self._wsproto.send(event)
+        async with self._stream_lock:
+            logger.debug('%s sending %d bytes', self, len(data))
+            try:
+                await self._stream.send_all(data)
+            except (trio.BrokenResourceError, trio.ClosedResourceError):
+                await self._abort_web_socket()
+                raise ConnectionClosed(self._close_reason) from None
 
 
 class ListenPort:
@@ -1109,7 +1112,7 @@ class WebSocketServer:
         :type stream: trio.abc.Stream
         '''
         async with trio.open_nursery() as nursery:
-            wsproto = wsconnection.WSConnection(wsconnection.SERVER)
+            wsproto = WSConnection(ConnectionType.SERVER)
             connection = WebSocketConnection(stream, wsproto,
                 message_queue_size=self._message_queue_size,
                 max_message_size=self._max_message_size)
