@@ -506,7 +506,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
     CONNECTION_ID = itertools.count()
 
     def __init__(self, stream, wsproto, *, host=None, path=None,
-        subprotocols=None, message_queue_size=MESSAGE_QUEUE_SIZE,
+        subprotocols=(), message_queue_size=MESSAGE_QUEUE_SIZE,
         max_message_size=MAX_MESSAGE_SIZE):
         '''
         Constructor.
@@ -542,7 +542,6 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._max_message_size = max_message_size
         self._reader_running = True
         if wsproto.client:
-            subprotocols = subprotocols or []
             self._initial_request = Request(host=host, target=path,
                 subprotocols=subprotocols)
         else:

@@ -299,6 +299,13 @@ async def test_client_send_and_receive(echo_conn):
         assert received_msg == 'This is a test message.'
 
 
+
+async def test_client_send_invalid_type(echo_conn):
+    async with echo_conn:
+        with pytest.raises(ValueError):
+            await echo_conn.send_message(object())
+
+
 async def test_client_ping(echo_conn):
     async with echo_conn:
         await echo_conn.ping(b'A')
