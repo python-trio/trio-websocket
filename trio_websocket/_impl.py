@@ -352,7 +352,32 @@ class ConnectionClosed(Exception):
 
     def __repr__(self):
         ''' Return representation. '''
-        return '<{} {}>'.format(self.__class__.__name__, self.reason)
+        return '{}<{}>'.format(self.__class__.__name__, self.reason)
+
+
+class ConnectionRejected(Exception):
+    '''
+    A WebSocket connection could not be established because the server rejected
+    the connection attempt.
+    '''
+    def __init__(self, status_code, headers, body):
+        '''
+        Constructor.
+
+        :param reason:
+        :type reason: CloseReason
+        '''
+        #: a 3 digit HTTP status code
+        self.status_code = status_code
+        #: a tuple of 2-tuples containing header key/value pairs
+        self.headers = headers
+        #: an optional ``bytes`` response body
+        self.body = body
+
+    def __repr__(self):
+        ''' Return representation. '''
+        return '{}<status_code={}>'.format(self.__class__.__name__,
+            self.status_code)
 
 
 class CloseReason:
@@ -395,7 +420,7 @@ class CloseReason:
 
     def __repr__(self):
         ''' Show close code, name, and reason. '''
-        return '<{} code={} name={} reason={}>'.format(self.__class__.__name__,
+        return '{}<code={}, name={}, reason={}>'.format(self.__class__.__name__,
             self.code, self.name, self.reason)
 
 
@@ -441,13 +466,11 @@ class WebSocketRequest:
         '''
         self._connection = connection
         self._event = event
-        self._subprotocol = None
 
     @property
     def headers(self):
         '''
-        (Read-only) HTTP headers represented as a list of
-        (name, value) pairs.
+        HTTP headers represented as a list of (name, value) pairs.
 
         :rtype: list[tuple]
         '''
@@ -456,7 +479,7 @@ class WebSocketRequest:
     @property
     def path(self):
         '''
-        (Read-only) The requested URL path.
+        The requested URL path.
 
         :rtype: str
         '''
@@ -465,29 +488,11 @@ class WebSocketRequest:
     @property
     def proposed_subprotocols(self):
         '''
-        (Read-only) A tuple of protocols proposed by the client.
+        A tuple of protocols proposed by the client.
 
         :rtype: tuple[str]
         '''
         return tuple(self._event.subprotocols)
-
-    @property
-    def subprotocol(self):
-        '''
-        (Read/Write) The selected protocol. Defaults to ``None``.
-
-        :rtype: str or None
-        '''
-        return self._subprotocol
-
-    @subprotocol.setter
-    def subprotocol(self, value):
-        '''
-        Set the selected protocol.
-
-        :type value: str or None
-        '''
-        self._subprotocol = value
 
     @property
     def local(self):
@@ -507,15 +512,38 @@ class WebSocketRequest:
         '''
         return self._connection.remote
 
-    async def accept(self):
+    async def accept(self, *, subprotocol=None, extra_headers=None):
         '''
-        Finish the handshake with the terms contained in this request and
-        return a connection object.
+        Accept the request and return a connection object.
 
+        :param subprotocol: The selected subprotocol for this connection.
+        :type subprotocol: str or None
+        :param extra_headers: A list of 2-tuples containing key/value pairs to
+            send as HTTP headers.
+        :type extra_headers: list[tuple[bytes,bytes]] or None
         :rtype: WebSocketConnection
         '''
-        await self._connection.accept(self._event, self._subprotocol)
+        if extra_headers is None:
+            extra_headers = list()
+        await self._connection._accept(self._event, subprotocol, extra_headers)
         return self._connection
+
+    async def reject(self, status_code, *, extra_headers=None, body=None):
+        '''
+        Reject the handshake.
+
+        :param int status_code: The 3 digit HTTP status code. In order to be
+            RFC-compliant, this should NOT be 101, and would ideally be an
+            appropriate code in the range 300-599.
+        :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples
+            containing key/value pairs to send as HTTP headers.
+        :param body: If provided, this data will be sent in the response
+            body, otherwise no response body will be sent.
+        :type body: bytes or None
+        '''
+        extra_headers = extra_headers or []
+        body = body or b''
+        await self._connection._reject(status_code, extra_headers, body)
 
 
 def _get_stream_endpoint(stream, *, local):
@@ -592,6 +620,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._initial_request = None
         self._path = path
         self._subprotocol = None
+        self._handshake_headers = None
+        self._reject_status = None
+        self._reject_headers = None
+        self._reject_body = b''
         self._send_channel, self._recv_channel = trio.open_memory_channel(
             message_queue_size)
         self._pings = OrderedDict()
@@ -648,7 +680,12 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     @property
     def path(self):
-        ''' (Read-only) The path from the HTTP handshake. '''
+        '''
+        The requested URL path. For clients, this is set when the connection is
+        instantiated. For servers, it is set after the handshake completes.
+
+        :rtype: str
+        '''
         return self._path
 
     @property
@@ -663,23 +700,16 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         return self._subprotocol
 
-    async def accept(self, request, subprotocol):
+    @property
+    def handshake_headers(self):
         '''
-        Accept a connection request.
+        The HTTP headers that were sent by the remote during the handshake,
+        stored as 2-tuples containing key/value pairs. Header keys are always
+        lower case.
 
-        This finishes the server-side handshake with the given proposal
-        attributes and return the connection instance. Generally you don't need
-        to call this method directly. It is invoked for you when you accept a
-        :class:`WebSocketRequest`.
-
-        :param wsproto.events.Request request:
-        :param subprotocol:
-        :type subprotocol: str or None
+        :rtype: tuple[tuple[str,str]]
         '''
-        self._subprotocol = subprotocol
-        self._path = request.target
-        await self._send(AcceptConnection(subprotocol=self._subprotocol))
-        self._open_handshake.set()
+        return self._handshake_headers
 
     async def aclose(self, code=1000, reason=None):
         '''
@@ -703,6 +733,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
         try:
             if self._wsproto.state == ConnectionState.OPEN:
                 await self._send(CloseConnection(code=code, reason=reason))
+            elif self._wsproto.state in (ConnectionState.CONNECTING,
+                    ConnectionState.REJECTING):
+                self._close_handshake.set()
             await self._recv_channel.aclose()
             await self._close_handshake.wait()
         except ConnectionClosed:
@@ -712,7 +745,6 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # If cancelled during WebSocket close, make sure that the underlying
             # stream is closed.
             await self._close_stream()
-
 
     async def get_message(self):
         '''
@@ -805,6 +837,46 @@ class WebSocketConnection(trio.abc.AsyncResource):
         type_ = 'client' if self.is_client else 'server'
         return '{}-{}'.format(type_, self._id)
 
+    async def _accept(self, request, subprotocol, extra_headers):
+        '''
+        Accept a given proposal.
+
+        This method is only applicable to server-side connections.
+
+        :param wsproto.events.Request request:
+        :param subprotocol:
+        :type subprotocol: str or None
+        :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples
+            containing key/value pairs to send as HTTP headers.
+        '''
+        self._subprotocol = subprotocol
+        self._path = request.target
+        await self._send(AcceptConnection(subprotocol=self._subprotocol,
+            extra_headers=extra_headers))
+        self._open_handshake.set()
+
+    async def _reject(self, status_code, headers, body):
+        '''
+        Reject the handshake.
+
+        :param int status_code: The 3 digit HTTP status code. In order to be
+            RFC-compliant, this must not be 101, and should be an appropriate
+            code in the range 300-599.
+        :param list[tuple[bytes,bytes]] headers: A list of 2-tuples containing
+            key/value pairs to send as HTTP headers.
+        :param bytes body: An optional response body.
+        '''
+        if body:
+            headers.append(('Content-length', str(len(body)).encode('ascii')))
+        reject_conn = RejectConnection(status_code=status_code, headers=headers,
+            has_body=bool(body))
+        await self._send(reject_conn)
+        if body:
+            reject_body = RejectData(data=body, body_finished=True)
+            await self._send(reject_body)
+        self._close_reason = CloseReason(1006, 'Rejected WebSocket handshake')
+        self._close_handshake.set()
+
     async def _abort_web_socket(self):
         '''
         If a stream is closed outside of this class, e.g. due to network
@@ -874,12 +946,36 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     async def _handle_accept_connection_event(self, event):
         '''
-        Handle a ConnectionEstablished event.
+        Handle an AcceptConnection event.
+
+        :param wsproto.eventsAcceptConnection event:
+        '''
+        self._subprotocol = event.subprotocol
+        self._handshake_headers = tuple(event.extra_headers)
+        self._open_handshake.set()
+
+    async def _handle_reject_connection_event(self, event):
+        '''
+        Handle a RejectConnection event.
 
         :param event:
         '''
-        self._subprotocol = event.subprotocol
-        self._open_handshake.set()
+        self._reject_status = event.status_code
+        self._reject_headers = tuple(event.headers)
+        if not event.has_body:
+            raise ConnectionRejected(self._reject_status, self._reject_headers,
+                body=None)
+
+    async def _handle_reject_data_event(self, event):
+        '''
+        Handle a RejectData event.
+
+        :param event:
+        '''
+        self._reject_body += event.data
+        if event.body_finished:
+            raise ConnectionRejected(self._reject_status, self._reject_headers,
+                body=self._reject_body)
 
     async def _handle_close_connection_event(self, event):
         '''
@@ -974,6 +1070,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
             CloseConnection: self._handle_close_connection_event,
             Ping: self._handle_ping_event,
             Pong: self._handle_pong_event,
+            RejectConnection: self._handle_reject_connection_event,
+            RejectData: self._handle_reject_data_event,
             Request: self._handle_request_event,
             TextMessage: self._handle_message_event,
         }

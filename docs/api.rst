@@ -20,10 +20,10 @@ Requests
 
     .. autoattribute:: headers
     .. autoattribute:: proposed_subprotocols
-    .. autoattribute:: subprotocol
     .. autoattribute:: local
     .. autoattribute:: remote
     .. automethod:: accept
+    .. automethod:: reject
 
 Connections
 -----------
@@ -47,8 +47,13 @@ Connections
     .. autoattribute:: is_server
     .. autoattribute:: local
     .. autoattribute:: remote
+
+    This object exposes the following properties related to the WebSocket
+    handshake.
+
     .. autoattribute:: path
     .. autoattribute:: subprotocol
+    .. autoattribute:: handshake_headers
 
     A connection object has a pair of methods for sending and receiving
     WebSocket messages. Messages can be ``str`` or ``bytes`` objects.
@@ -80,6 +85,8 @@ Connections
     :members:
 
 .. autoexception:: ConnectionClosed
+
+.. autoexception:: ConnectionRejected
 
 Utilities
 ---------

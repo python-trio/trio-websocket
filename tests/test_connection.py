@@ -43,6 +43,7 @@ from trio_websocket import (
     connect_websocket,
     connect_websocket_url,
     ConnectionClosed,
+    ConnectionRejected,
     open_websocket,
     open_websocket_url,
     serve_websocket,
@@ -324,16 +325,89 @@ async def test_handshake_has_endpoints(nursery):
 async def test_handshake_subprotocol(nursery):
     async def handler(request):
         assert request.proposed_subprotocols == ('chat', 'file')
-        assert request.subprotocol is None
-        request.subprotocol = 'chat'
-        assert request.subprotocol == 'chat'
-        server_ws = await request.accept()
+        server_ws = await request.accept(subprotocol='chat')
         assert server_ws.subprotocol == 'chat'
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
-        subprotocols=('chat', 'file')) as client_ws:
+            subprotocols=('chat', 'file')) as client_ws:
         assert client_ws.subprotocol == 'chat'
+
+
+async def test_handshake_path(nursery):
+    async def handler(request):
+        assert request.path == RESOURCE
+        server_ws = await request.accept()
+        assert server_ws.path == RESOURCE
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+            ) as client_ws:
+        assert client_ws.path == RESOURCE
+
+
+@fail_after(1)
+async def test_handshake_server_headers(nursery):
+    async def handler(request):
+        headers = [('X-Test-Header', 'My test header')]
+        server_ws = await request.accept(extra_headers=headers)
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False
+            ) as client_ws:
+        header_key, header_value = client_ws.handshake_headers[0]
+        assert header_key == b'x-test-header'
+        assert header_value == b'My test header'
+
+
+@fail_after(1)
+async def test_handshake_exception_before_accept():
+    ''' In #107, a request handler that throws an exception before finishing the
+    handshake causes the task to hang. The proper behavior is to raise an
+    exception to the nursery as soon as possible. '''
+    async def handler(request):
+        raise Exception()
+
+    with pytest.raises(Exception):
+        with trio.open_nursery() as nursery:
+            server = await nursery.start(serve_websocket, handler, HOST, 0,
+                None)
+            async with open_websocket(HOST, server.port, RESOURCE,
+                    use_ssl=False) as client_ws:
+                pass
+
+
+@fail_after(1)
+async def test_reject_handshake(nursery):
+    async def handler(request):
+        headers = [(b'X-Test-Header', b'My Header')]
+        await request.reject(400, extra_headers=headers)
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(ConnectionRejected) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+                ) as client_ws:
+            pass
+    exc = exc_info.value
+    assert exc.status_code == 400
+    assert repr(exc) == 'ConnectionRejected<status_code=400>'
+    headers = dict(exc.headers)
+    assert headers.get(b'x-test-header') == b'My Header'
+
+
+@fail_after(1)
+async def test_reject_handshake_with_body(nursery):
+    async def handler(request):
+        body = b'My body'
+        await request.reject(400, body=body)
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(ConnectionRejected) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+                ) as client_ws:
+            pass
+    exc = exc_info.value
+    assert exc.body == b'My body'
 
 
 async def test_client_send_and_receive(echo_conn):
