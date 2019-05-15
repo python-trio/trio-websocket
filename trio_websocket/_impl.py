@@ -432,15 +432,14 @@ class WebSocketRequest:
     The server may modify the handshake or leave it as is. The server should
     call ``accept()`` to finish the handshake and obtain a connection object.
     '''
-    def __init__(self, accept_fn, event):
+    def __init__(self, connection, event):
         '''
         Constructor.
 
-        :param accept_fn: A function to call that will finish the handshake and
-            return a ``WebSocketConnection``.
+        :param WebSocketConnection connection:
         :type event: wsproto.events.Request
         '''
-        self._accept_fn = accept_fn
+        self._connection = connection
         self._event = event
         self._subprotocol = None
 
@@ -490,6 +489,24 @@ class WebSocketRequest:
         '''
         self._subprotocol = value
 
+    @property
+    def local(self):
+        '''
+        The connection's local endpoint.
+
+        :rtype: Endpoint or str
+        '''
+        return self._connection.local
+
+    @property
+    def remote(self):
+        '''
+        The connection's remote endpoint.
+
+        :rtype: Endpoint or str
+        '''
+        return self._connection.remote
+
     async def accept(self):
         '''
         Finish the handshake with the terms contained in this request and
@@ -497,7 +514,34 @@ class WebSocketRequest:
 
         :rtype: WebSocketConnection
         '''
-        return await self._accept_fn(self)
+        await self._connection.accept(self._event, self._subprotocol)
+        return self._connection
+
+
+def _get_stream_endpoint(stream, *, local):
+    '''
+    Construct an endpoint from a stream.
+
+    :param trio.Stream stream:
+    :param bool local: If true, return local endpoint. Otherwise return remote.
+    :returns: An endpoint instance or ``repr()`` for streams that cannot be
+        represented as an endpoint.
+    :rtype: Endpoint or str
+    '''
+    if isinstance(stream, trio.SocketStream):
+        socket = stream.socket
+        is_ssl = False
+    elif isinstance(stream, trio.SSLStream):
+        socket = stream.transport_stream.socket
+        is_ssl = True
+    else:
+        socket = None
+    if socket:
+        addr, port, *_ = socket.getsockname() if local else socket.getpeername()
+        endpoint = Endpoint(addr, port, is_ssl)
+    else:
+        endpoint = repr(stream)
+    return endpoint
 
 
 class WebSocketConnection(trio.abc.AsyncResource):
@@ -585,6 +629,24 @@ class WebSocketConnection(trio.abc.AsyncResource):
         return not self._wsproto.client
 
     @property
+    def local(self):
+        '''
+        The local endpoint of the connection.
+
+        :rtype: Endpoint or str
+        '''
+        return _get_stream_endpoint(self._stream, local=True)
+
+    @property
+    def remote(self):
+        '''
+        The remote endpoint of the connection.
+
+        :rtype: Endpoint or str
+        '''
+        return _get_stream_endpoint(self._stream, local=False)
+
+    @property
     def path(self):
         ''' (Read-only) The path from the HTTP handshake. '''
         return self._path
@@ -600,6 +662,24 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :rtype: str or None
         '''
         return self._subprotocol
+
+    async def accept(self, request, subprotocol):
+        '''
+        Accept a connection request.
+
+        This finishes the server-side handshake with the given proposal
+        attributes and return the connection instance. Generally you don't need
+        to call this method directly. It is invoked for you when you accept a
+        :class:`WebSocketRequest`.
+
+        :param wsproto.events.Request request:
+        :param subprotocol:
+        :type subprotocol: str or None
+        '''
+        self._subprotocol = subprotocol
+        self._path = request.target
+        await self._send(AcceptConnection(subprotocol=self._subprotocol))
+        self._open_handshake.set()
 
     async def aclose(self, code=1000, reason=None):
         '''
@@ -742,21 +822,6 @@ class WebSocketConnection(trio.abc.AsyncResource):
         # (e.g. self.aclose()) to resume.
         self._close_handshake.set()
 
-    async def _accept(self, proposal):
-        '''
-        Accept a given proposal.
-
-        This finishes the server-side handshake with the given proposal
-        attributes and return the connection instance.
-
-        :rtype: WebSocketConnection
-        '''
-        self._subprotocol = proposal.subprotocol
-        self._path = proposal.path
-        await self._send(AcceptConnection(subprotocol=self._subprotocol))
-        self._open_handshake.set()
-        return self
-
     async def _close_stream(self):
         ''' Close the TCP connection. '''
         self._reader_running = False
@@ -804,7 +869,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param event:
         '''
-        proposal = WebSocketRequest(self._accept, event)
+        proposal = WebSocketRequest(self, event)
         self._connection_proposal.set_value(proposal)
 
     async def _handle_accept_connection_event(self, event):
@@ -977,20 +1042,35 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 raise ConnectionClosed(self._close_reason) from None
 
 
-class ListenPort:
-    ''' Represents a listener on a given address and port. '''
+class Endpoint:
+    ''' Represents a connection endpoint. '''
     def __init__(self, address, port, is_ssl):
+        #: IP address :class:`ipaddress.ip_address`
         self.address = ip_address(address)
+        #: TCP port
         self.port = port
+        #: Whether SSL is in use
         self.is_ssl = is_ssl
 
-    def __str__(self):
-        ''' Return a compact representation, like 127.0.0.1:80 or [::1]:80. '''
+    @property
+    def url(self):
+        ''' Return a URL representation of a TCP endpoint, e.g.
+        ``ws://127.0.0.1:80``. '''
         scheme = 'wss' if self.is_ssl else 'ws'
-        if self.address.version == 4:
-            return '{}://{}:{}'.format(scheme, self.address, self.port)
+        if (self.port == 80 and not self.is_ssl) or \
+           (self.port == 443 and self.is_ssl):
+            port_str = ''
         else:
-            return '{}://[{}]:{}'.format(scheme, self.address, self.port)
+            port_str = ':' + str(self.port)
+        if self.address.version == 4:
+            return '{}://{}{}'.format(scheme, self.address, port_str)
+        else:
+            return '{}://[{}]{}'.format(scheme, self.address, port_str)
+
+    def __repr__(self):
+        ''' Return endpoint info as string. '''
+        return 'Endpoint(address="{}", port={}, is_ssl={})'.format(self.address,
+            self.port, self.is_ssl)
 
 
 class WebSocketServer:
@@ -1062,8 +1142,11 @@ class WebSocketServer:
     def listeners(self):
         '''
         Return a list of listener metadata. Each TCP listener is represented as
-        a ``ListenPort`` instance. Other listener types are represented by their
+        an ``Endpoint`` instance. Other listener types are represented by their
         ``repr()``.
+
+        :returns: Listeners
+        :rtype list[Endpoint or str]:
         '''
         listeners = list()
         for listener in self._listeners:
@@ -1077,7 +1160,7 @@ class WebSocketServer:
                 socket = None
             if socket:
                 sockname = socket.getsockname()
-                listeners.append(ListenPort(sockname[0], sockname[1], is_ssl))
+                listeners.append(Endpoint(sockname[0], sockname[1], is_ssl))
             else:
                 listeners.append(repr(listener))
         return listeners
