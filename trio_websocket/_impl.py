@@ -537,8 +537,8 @@ def _get_stream_endpoint(stream, *, local):
     else:
         socket = None
     if socket:
-        sockname = socket.getsockname() if local else socket.getpeername()
-        endpoint = Endpoint(sockname[0], sockname[1], is_ssl)
+        addr, port, * = socket.getsockname() if local else socket.getpeername()
+        endpoint = Endpoint(addr, port, is_ssl)
     else:
         endpoint = repr(stream)
     return endpoint
@@ -665,7 +665,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     async def accept(self, request, subprotocol):
         '''
-        Accept a given proposal.
+        Accept a connection request.
 
         This finishes the server-side handshake with the given proposal
         attributes and return the connection instance. Generally you don't need
@@ -1043,7 +1043,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
 
 class Endpoint:
-    ''' Represents an endpoint for a connection. '''
+    ''' Represents a connection endpoint. '''
     def __init__(self, address, port, is_ssl):
         #: IP address :class:`ipaddress.ip_address`
         self.address = ip_address(address)
