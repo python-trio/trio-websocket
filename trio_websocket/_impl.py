@@ -537,7 +537,7 @@ def _get_stream_endpoint(stream, *, local):
     else:
         socket = None
     if socket:
-        addr, port, * = socket.getsockname() if local else socket.getpeername()
+        addr, port, *_ = socket.getsockname() if local else socket.getpeername()
         endpoint = Endpoint(addr, port, is_ssl)
     else:
         endpoint = repr(stream)
