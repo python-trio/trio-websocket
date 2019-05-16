@@ -349,6 +349,22 @@ async def test_handshake_path(nursery):
 
 
 @fail_after(1)
+async def test_handshake_client_headers(nursery):
+    async def handler(request):
+        headers = dict(request.headers)
+        assert b'x-test-header' in headers
+        assert headers[b'x-test-header'] == b'My test header'
+        server_ws = await request.accept()
+        await server_ws.send_message('test')
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    headers = [(b'X-Test-Header', b'My test header')]
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+            extra_headers=headers) as client_ws:
+        await client_ws.get_message()
+
+
+@fail_after(1)
 async def test_handshake_server_headers(nursery):
     async def handler(request):
         headers = [('X-Test-Header', 'My test header')]
