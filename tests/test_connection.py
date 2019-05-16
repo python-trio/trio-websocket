@@ -263,6 +263,8 @@ async def test_client_open(echo_server):
     async with open_websocket(HOST, echo_server.port, RESOURCE, use_ssl=False) \
         as conn:
         assert not conn.closed
+        assert conn.is_client
+        assert str(conn).startswith('client-')
 
 
 async def test_client_open_url(echo_server):
@@ -380,24 +382,6 @@ async def test_handshake_exception_before_accept():
 @fail_after(1)
 async def test_reject_handshake(nursery):
     async def handler(request):
-        headers = [(b'X-Test-Header', b'My Header')]
-        await request.reject(400, extra_headers=headers)
-
-    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
-    with pytest.raises(ConnectionRejected) as exc_info:
-        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
-                ) as client_ws:
-            pass
-    exc = exc_info.value
-    assert exc.status_code == 400
-    assert repr(exc) == 'ConnectionRejected<status_code=400>'
-    headers = dict(exc.headers)
-    assert headers.get(b'x-test-header') == b'My Header'
-
-
-@fail_after(1)
-async def test_reject_handshake_with_body(nursery):
-    async def handler(request):
         body = b'My body'
         await request.reject(400, body=body)
 
@@ -408,6 +392,30 @@ async def test_reject_handshake_with_body(nursery):
             pass
     exc = exc_info.value
     assert exc.body == b'My body'
+
+
+@fail_after(1)
+async def test_reject_handshake_invalid_info_status(nursery):
+    '''
+    An informational status code that is not 101 should cause the client to
+    reject the handshake. Since it is an informational response, there will not
+    be a response body, so this test exercises a different code path.
+    '''
+    async def handler(stream):
+        await stream.send_all(b'HTTP/1.1 100 CONTINUE\r\n\r\n')
+        await stream.receive_some(max_bytes=1024)
+    serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
+    listeners = await nursery.start(serve_fn)
+    port = listeners[0].socket.getsockname()[1]
+
+    with pytest.raises(ConnectionRejected) as exc_info:
+        async with open_websocket(HOST, port, RESOURCE, use_ssl=False,
+                ) as client_ws:
+            pass
+    exc = exc_info.value
+    assert exc.status_code == 100
+    assert repr(exc) == 'ConnectionRejected<status_code=100>'
+    assert exc.body is None
 
 
 async def test_client_send_and_receive(echo_conn):
@@ -473,6 +481,8 @@ async def test_client_default_close(echo_conn):
         assert not echo_conn.closed
     assert echo_conn.closed.code == 1000
     assert echo_conn.closed.reason is None
+    assert repr(echo_conn.closed) == 'CloseReason<code=1000, ' \
+        'name=NORMAL_CLOSURE, reason=None>'
 
 
 async def test_client_nondefault_close(echo_conn):

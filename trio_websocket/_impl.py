@@ -839,7 +839,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     async def _accept(self, request, subprotocol, extra_headers):
         '''
-        Accept a given proposal.
+        Accept the handshake.
 
         This method is only applicable to server-side connections.
 
@@ -872,7 +872,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             has_body=bool(body))
         await self._send(reject_conn)
         if body:
-            reject_body = RejectData(data=body, body_finished=True)
+            reject_body = RejectData(data=body)
             await self._send(reject_body)
         self._close_reason = CloseReason(1006, 'Rejected WebSocket handshake')
         self._close_handshake.set()
