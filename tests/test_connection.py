@@ -43,6 +43,7 @@ from trio_websocket import (
     connect_websocket,
     connect_websocket_url,
     ConnectionClosed,
+    ConnectionRejected,
     open_websocket,
     open_websocket_url,
     serve_websocket,
@@ -262,6 +263,8 @@ async def test_client_open(echo_server):
     async with open_websocket(HOST, echo_server.port, RESOURCE, use_ssl=False) \
         as conn:
         assert not conn.closed
+        assert conn.is_client
+        assert str(conn).startswith('client-')
 
 
 async def test_client_open_url(echo_server):
@@ -324,16 +327,95 @@ async def test_handshake_has_endpoints(nursery):
 async def test_handshake_subprotocol(nursery):
     async def handler(request):
         assert request.proposed_subprotocols == ('chat', 'file')
-        assert request.subprotocol is None
-        request.subprotocol = 'chat'
-        assert request.subprotocol == 'chat'
-        server_ws = await request.accept()
+        server_ws = await request.accept(subprotocol='chat')
         assert server_ws.subprotocol == 'chat'
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
-        subprotocols=('chat', 'file')) as client_ws:
+            subprotocols=('chat', 'file')) as client_ws:
         assert client_ws.subprotocol == 'chat'
+
+
+async def test_handshake_path(nursery):
+    async def handler(request):
+        assert request.path == RESOURCE
+        server_ws = await request.accept()
+        assert server_ws.path == RESOURCE
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+            ) as client_ws:
+        assert client_ws.path == RESOURCE
+
+
+@fail_after(1)
+async def test_handshake_server_headers(nursery):
+    async def handler(request):
+        headers = [('X-Test-Header', 'My test header')]
+        server_ws = await request.accept(extra_headers=headers)
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False
+            ) as client_ws:
+        header_key, header_value = client_ws.handshake_headers[0]
+        assert header_key == b'x-test-header'
+        assert header_value == b'My test header'
+
+
+@fail_after(1)
+async def test_handshake_exception_before_accept():
+    ''' In #107, a request handler that throws an exception before finishing the
+    handshake causes the task to hang. The proper behavior is to raise an
+    exception to the nursery as soon as possible. '''
+    async def handler(request):
+        raise Exception()
+
+    with pytest.raises(Exception):
+        with trio.open_nursery() as nursery:
+            server = await nursery.start(serve_websocket, handler, HOST, 0,
+                None)
+            async with open_websocket(HOST, server.port, RESOURCE,
+                    use_ssl=False) as client_ws:
+                pass
+
+
+@fail_after(1)
+async def test_reject_handshake(nursery):
+    async def handler(request):
+        body = b'My body'
+        await request.reject(400, body=body)
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(ConnectionRejected) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
+                ) as client_ws:
+            pass
+    exc = exc_info.value
+    assert exc.body == b'My body'
+
+
+@fail_after(1)
+async def test_reject_handshake_invalid_info_status(nursery):
+    '''
+    An informational status code that is not 101 should cause the client to
+    reject the handshake. Since it is an informational response, there will not
+    be a response body, so this test exercises a different code path.
+    '''
+    async def handler(stream):
+        await stream.send_all(b'HTTP/1.1 100 CONTINUE\r\n\r\n')
+        await stream.receive_some(max_bytes=1024)
+    serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
+    listeners = await nursery.start(serve_fn)
+    port = listeners[0].socket.getsockname()[1]
+
+    with pytest.raises(ConnectionRejected) as exc_info:
+        async with open_websocket(HOST, port, RESOURCE, use_ssl=False,
+                ) as client_ws:
+            pass
+    exc = exc_info.value
+    assert exc.status_code == 100
+    assert repr(exc) == 'ConnectionRejected<status_code=100>'
+    assert exc.body is None
 
 
 async def test_client_send_and_receive(echo_conn):
@@ -399,6 +481,8 @@ async def test_client_default_close(echo_conn):
         assert not echo_conn.closed
     assert echo_conn.closed.code == 1000
     assert echo_conn.closed.reason is None
+    assert repr(echo_conn.closed) == 'CloseReason<code=1000, ' \
+        'name=NORMAL_CLOSURE, reason=None>'
 
 
 async def test_client_nondefault_close(echo_conn):

@@ -1,6 +1,7 @@
 from ._impl import (
     CloseReason,
     ConnectionClosed,
+    ConnectionRejected,
     connect_websocket,
     connect_websocket_url,
     open_websocket,
