@@ -139,7 +139,8 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
         host_header = '{}:{}'.format(host, port)
     wsproto = WSConnection(ConnectionType.CLIENT)
     connection = WebSocketConnection(stream, wsproto, host=host_header,
-        path=resource, subprotocols=subprotocols, extra_headers=extra_headers,
+        path=resource,
+        client_subprotocols=subprotocols, client_extra_headers=extra_headers,
         message_queue_size=message_queue_size,
         max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
@@ -274,7 +275,7 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
     '''
     wsproto = WSConnection(ConnectionType.CLIENT)
     connection = WebSocketConnection(stream, wsproto, host=host, path=resource,
-        subprotocols=subprotocols, extra_headers=extra_headers,
+        client_subprotocols=subprotocols, client_extra_headers=extra_headers,
         message_queue_size=message_queue_size,
         max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
@@ -603,7 +604,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
     CONNECTION_ID = itertools.count()
 
     def __init__(self, stream, wsproto, *, host=None, path=None,
-        subprotocols=None, extra_headers=None,
+        client_subprotocols=None, client_extra_headers=None,
         message_queue_size=MESSAGE_QUEUE_SIZE,
         max_message_size=MAX_MESSAGE_SIZE):
         '''
@@ -622,11 +623,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param str host: The hostname to send in the HTTP request headers. Only
             used for client connections.
         :param str path: The URL path for this connection.
-        :param list subprotocols: A list of desired subprotocols. Only used for
-            client connections.
-        :param list[tuple[bytes,bytes]] extra_headers: Extra headers to send
-            with the connection request. This is only used by client
-            connections.
+        :param list client_subprotocols: A list of desired subprotocols. Only
+            used for client connections.
+        :param list[tuple[bytes,bytes]] client_extra_headers: Extra headers to
+            send with the connection request. Only used for client connections.
         :param int message_queue_size: The maximum number of messages that will be
             buffered in the library's internal message queue.
         :param int max_message_size: The maximum message size as measured by
@@ -644,8 +644,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         if wsproto.client:
             self._initial_request = Request(host=host, target=path,
-                subprotocols=subprotocols or [],
-                extra_headers=extra_headers or [])
+                subprotocols=client_subprotocols,
+                extra_headers=client_extra_headers or [])
         else:
             self._initial_request = None
         self._path = path
