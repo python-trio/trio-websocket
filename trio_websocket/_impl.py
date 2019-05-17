@@ -24,6 +24,7 @@ from wsproto.events import (
     Request,
     TextMessage,
 )
+import wsproto.utilities
 from yarl import URL
 
 from .version import __version__
@@ -1116,7 +1117,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
             else:
                 logger.debug('%s received %d bytes', self, len(data))
                 if self._wsproto.state != ConnectionState.CLOSED:
-                    self._wsproto.receive_data(data)
+                    try:
+                        self._wsproto.receive_data(data)
+                    except wsproto.utilities.RemoteProtocolError as rpe:
+                        logger.debug('%s remote protocol error: %s', self, rpe)
+                        if rpe.event_hint:
+                            await self._send(rpe.event_hint)
+                        await self._close_stream()
 
         logger.debug('%s reader task finished', self)
 
