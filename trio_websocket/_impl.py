@@ -39,6 +39,7 @@ logger = logging.getLogger('trio-websocket')
 @asynccontextmanager
 @async_generator
 async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
+    extra_headers=None,
     message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
     connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
     '''
@@ -57,6 +58,10 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
     :type use_ssl: bool or ssl.SSLContext
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples containing
+        HTTP header key/value pairs to send with the connection request. Note
+        that headers used by the WebSocket protocol (e.g.
+        ``Sec-WebSocket-Accept``) will be overwritten.
     :param int message_queue_size: The maximum number of messages that will be
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
@@ -72,6 +77,7 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
         with trio.fail_after(connect_timeout):
             connection = await connect_websocket(new_nursery, host, port,
                 resource, use_ssl=use_ssl, subprotocols=subprotocols,
+                extra_headers=extra_headers,
                 message_queue_size=message_queue_size,
                 max_message_size=max_message_size)
         try:
@@ -82,8 +88,8 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
 
 
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,
-    subprotocols=None, message_queue_size=MESSAGE_QUEUE_SIZE,
-    max_message_size=MAX_MESSAGE_SIZE):
+    subprotocols=None, extra_headers=None,
+    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
     '''
     Return an open WebSocket client connection to a host.
 
@@ -100,6 +106,10 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     :type use_ssl: bool or ssl.SSLContext
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples containing
+        HTTP header key/value pairs to send with the connection request. Note
+        that headers used by the WebSocket protocol (e.g.
+        ``Sec-WebSocket-Accept``) will be overwritten.
     :param int message_queue_size: The maximum number of messages that will be
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
@@ -129,7 +139,8 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
         host_header = '{}:{}'.format(host, port)
     wsproto = WSConnection(ConnectionType.CLIENT)
     connection = WebSocketConnection(stream, wsproto, host=host_header,
-        path=resource, subprotocols=subprotocols,
+        path=resource,
+        client_subprotocols=subprotocols, client_extra_headers=extra_headers,
         message_queue_size=message_queue_size,
         max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
@@ -138,6 +149,7 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
 
 
 def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
+    extra_headers=None,
     message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
     connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
     '''
@@ -153,6 +165,10 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
     :type ssl_context: ssl.SSLContext or None
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples containing
+        HTTP header key/value pairs to send with the connection request. Note
+        that headers used by the WebSocket protocol (e.g.
+        ``Sec-WebSocket-Accept``) will be overwritten.
     :param int message_queue_size: The maximum number of messages that will be
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
@@ -166,13 +182,14 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
     return open_websocket(host, port, resource, use_ssl=ssl_context,
-        subprotocols=subprotocols, message_queue_size=message_queue_size,
+        subprotocols=subprotocols, extra_headers=extra_headers,
+        message_queue_size=message_queue_size,
         max_message_size=max_message_size)
 
 
 async def connect_websocket_url(nursery, url, ssl_context=None, *,
-    subprotocols=None, message_queue_size=MESSAGE_QUEUE_SIZE,
-    max_message_size=MAX_MESSAGE_SIZE):
+    subprotocols=None, extra_headers=None,
+    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
     '''
     Return an open WebSocket client connection to a URL.
 
@@ -188,6 +205,10 @@ async def connect_websocket_url(nursery, url, ssl_context=None, *,
     :type ssl_context: ssl.SSLContext or None
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples containing
+        HTTP header key/value pairs to send with the connection request. Note
+        that headers used by the WebSocket protocol (e.g.
+        ``Sec-WebSocket-Accept``) will be overwritten.
     :param int message_queue_size: The maximum number of messages that will be
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
@@ -198,7 +219,7 @@ async def connect_websocket_url(nursery, url, ssl_context=None, *,
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
     return await connect_websocket(nursery, host, port, resource,
         use_ssl=ssl_context, subprotocols=subprotocols,
-        message_queue_size=message_queue_size,
+        extra_headers=extra_headers, message_queue_size=message_queue_size,
         max_message_size=max_message_size)
 
 
@@ -225,8 +246,8 @@ def _url_to_host(url, ssl_context):
 
 
 async def wrap_client_stream(nursery, stream, host, resource, *,
-    subprotocols=None, message_queue_size=MESSAGE_QUEUE_SIZE,
-    max_message_size=MAX_MESSAGE_SIZE):
+    subprotocols=None, extra_headers=None,
+    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
     '''
     Wrap an arbitrary stream in a WebSocket connection.
 
@@ -241,6 +262,10 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
         accessed on the server.
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
+    :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples containing
+        HTTP header key/value pairs to send with the connection request. Note
+        that headers used by the WebSocket protocol (e.g.
+        ``Sec-WebSocket-Accept``) will be overwritten.
     :param int message_queue_size: The maximum number of messages that will be
         buffered in the library's internal message queue.
     :param int max_message_size: The maximum message size as measured by
@@ -250,7 +275,8 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
     '''
     wsproto = WSConnection(ConnectionType.CLIENT)
     connection = WebSocketConnection(stream, wsproto, host=host, path=resource,
-        subprotocols=subprotocols, message_queue_size=message_queue_size,
+        client_subprotocols=subprotocols, client_extra_headers=extra_headers,
+        message_queue_size=message_queue_size,
         max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
     await connection._open_handshake.wait()
@@ -578,7 +604,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
     CONNECTION_ID = itertools.count()
 
     def __init__(self, stream, wsproto, *, host=None, path=None,
-        subprotocols=(), message_queue_size=MESSAGE_QUEUE_SIZE,
+        client_subprotocols=None, client_extra_headers=None,
+        message_queue_size=MESSAGE_QUEUE_SIZE,
         max_message_size=MAX_MESSAGE_SIZE):
         '''
         Constructor.
@@ -596,8 +623,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param str host: The hostname to send in the HTTP request headers. Only
             used for client connections.
         :param str path: The URL path for this connection.
-        :param list subprotocols: A list of desired subprotocols. Only used for
-            client connections.
+        :param list client_subprotocols: A list of desired subprotocols. Only
+            used for client connections.
+        :param list[tuple[bytes,bytes]] client_extra_headers: Extra headers to
+            send with the connection request. Only used for client connections.
         :param int message_queue_size: The maximum number of messages that will be
             buffered in the library's internal message queue.
         :param int max_message_size: The maximum message size as measured by
@@ -615,7 +644,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reader_running = True
         if wsproto.client:
             self._initial_request = Request(host=host, target=path,
-                subprotocols=subprotocols)
+                subprotocols=client_subprotocols,
+                extra_headers=client_extra_headers or [])
         else:
             self._initial_request = None
         self._path = path
