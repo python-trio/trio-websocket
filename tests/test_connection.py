@@ -434,6 +434,20 @@ async def test_reject_handshake_invalid_info_status(nursery):
     assert exc.body is None
 
 
+async def test_handshake_protocol_error(nursery, echo_server):
+    '''
+    If a client connects to a trio-websocket server and tries to speak HTTP
+    instead of WebSocket, the server should reject the connection. (If the
+    server does not catch the protocol exception, it will raise an exception up
+    to the nursery level and fail the test.)
+    '''
+    client_stream = await trio.open_tcp_stream(HOST, echo_server.port)
+    async with client_stream:
+        await client_stream.send_all(b'GET / HTTP/1.1\r\n\r\n')
+        response = await client_stream.receive_some(1024)
+        assert response.startswith(b'HTTP/1.1 400')
+
+
 async def test_client_send_and_receive(echo_conn):
     async with echo_conn:
         await echo_conn.send_message('This is a test message.')
