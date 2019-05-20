@@ -1119,10 +1119,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 if self._wsproto.state != ConnectionState.CLOSED:
                     try:
                         self._wsproto.receive_data(data)
-                    except wsproto.utilities.RemoteProtocolError as rpe:
-                        logger.debug('%s remote protocol error: %s', self, rpe)
-                        if rpe.event_hint:
-                            await self._send(rpe.event_hint)
+                    except wsproto.utilities.RemoteProtocolError as err:
+                        logger.debug('%s remote protocol error: %s', self, err)
+                        if err.event_hint:
+                            await self._send(err.event_hint)
                         await self._close_stream()
 
         logger.debug('%s reader task finished', self)
