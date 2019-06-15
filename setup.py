@@ -31,6 +31,8 @@ setup(
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: Implementation :: CPython',
+        'Programming Language :: Python :: Implementation :: PyPy',
     ],
     python_requires=">=3.5",
     keywords='websocket client server trio',
@@ -39,7 +41,9 @@ setup(
         'async_generator>=1.10,<2',
         'ipaddress>=1.0.22,<2',
         'trio>=0.11',
-        'wsaccel>=0.6.2,<0.7',
+        # TODO: confirm whether wsaccel is relevant to performance
+        # Disabled on pypy: https://github.com/methane/wsaccel/issues/19
+        'wsaccel>=0.6.2,<0.7;implementation_name!="pypy"',
         'wsproto>=0.14,<0.15',
         'yarl>=1.2.6,<2'
     ],
