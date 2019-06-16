@@ -12,7 +12,7 @@ import ssl
 import sys
 
 import trio
-from trio_websocket import open_websocket_url, ConnectionClosed
+from trio_websocket import open_websocket_url, ConnectionClosed, HandshakeError
 import yarl
 
 
@@ -56,8 +56,8 @@ async def main(args):
         logging.debug('Connecting to WebSocket…')
         async with open_websocket_url(args.url, ssl_context) as conn:
             await handle_connection(conn, args.heartbeat)
-    except OSError as ose:
-        logging.error('Connection attempt failed: %s', ose)
+    except HandshakeError as e:
+        logging.error('Connection attempt failed: %s', e)
         return False
 
 

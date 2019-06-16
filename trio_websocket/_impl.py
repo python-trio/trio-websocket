@@ -72,20 +72,29 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
         connection before timing out.
     :param float disconnect_timeout: The number of seconds to wait when closing
         the connection before timing out.
-    :raises trio.TooSlowError: if connecting or disconnecting times out.
+    :raises HandshakeError: for any networking error or client-side timeout
+        (ConnectionTimeout or DisconnectionTimeout) during handshakes.
     '''
     async with trio.open_nursery() as new_nursery:
-        with trio.fail_after(connect_timeout):
-            connection = await connect_websocket(new_nursery, host, port,
-                resource, use_ssl=use_ssl, subprotocols=subprotocols,
-                extra_headers=extra_headers,
-                message_queue_size=message_queue_size,
-                max_message_size=max_message_size)
+        try:
+            with trio.fail_after(connect_timeout):
+                connection = await connect_websocket(new_nursery, host, port,
+                    resource, use_ssl=use_ssl, subprotocols=subprotocols,
+                    extra_headers=extra_headers,
+                    message_queue_size=message_queue_size,
+                    max_message_size=max_message_size)
+        except trio.TooSlowError:
+            raise ConnectionTimeout from None
+        except OSError as e:
+            raise HandshakeError from e
         try:
             await yield_(connection)
         finally:
-            with trio.fail_after(disconnect_timeout):
-                await connection.aclose()
+            try:
+                with trio.fail_after(disconnect_timeout):
+                    await connection.aclose()
+            except trio.TooSlowError:
+                raise DisconnectionTimeout from None
 
 
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,
@@ -179,7 +188,8 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
         connection before timing out.
     :param float disconnect_timeout: The number of seconds to wait when closing
         the connection before timing out.
-    :raises trio.TooSlowError: if connecting or disconnecting times out.
+    :raises HandshakeError: for any networking error or client-side timeout
+        (ConnectionTimeout or DisconnectionTimeout) during handshakes.
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
     return open_websocket(host, port, resource, use_ssl=ssl_context,
@@ -363,6 +373,18 @@ async def serve_websocket(handler, host, port, ssl_context, *,
         disconnect_timeout=disconnect_timeout)
     await server.run(task_status=task_status)
 
+
+class HandshakeError(Exception):
+    '''
+    There was an error during connection or disconnection with the websocket
+    server.
+    '''
+
+class ConnectionTimeout(HandshakeError):
+    '''There was a timeout when connecting to the websocket server.'''
+
+class DisconnectionTimeout(HandshakeError):
+    '''There was a timeout when disconnecting from the websocket server.'''
 
 class ConnectionClosed(Exception):
     '''

@@ -45,6 +45,8 @@ from trio_websocket import (
     connect_websocket_url,
     ConnectionClosed,
     ConnectionRejected,
+    ConnectionTimeout,
+    DisconnectionTimeout,
     Endpoint,
     open_websocket,
     open_websocket_url,
@@ -593,7 +595,7 @@ async def test_client_open_timeout(nursery, autojump_clock):
     server = await nursery.start(
         partial(serve_websocket, handler, HOST, 0, ssl_context=None))
 
-    with pytest.raises(trio.TooSlowError):
+    with pytest.raises(ConnectionTimeout):
         async with open_websocket(HOST, server.port, '/', use_ssl=False,
                 connect_timeout=TIMEOUT) as client_ws:
             pass
@@ -621,7 +623,7 @@ async def test_client_close_timeout(nursery, autojump_clock):
         partial(serve_websocket, handler, HOST, 0, ssl_context=None,
         message_queue_size=0))
 
-    with pytest.raises(trio.TooSlowError):
+    with pytest.raises(DisconnectionTimeout):
         async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
                 disconnect_timeout=TIMEOUT) as client_ws:
             await client_ws.send_message('test')
