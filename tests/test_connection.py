@@ -31,6 +31,7 @@ circumstances
 '''
 from functools import partial, wraps
 import ssl
+from unittest.mock import patch
 
 import attr
 import pytest
@@ -281,6 +282,30 @@ async def test_client_open_invalid_url(echo_server):
     with pytest.raises(ValueError):
         async with open_websocket_url('http://foo.com/bar') as conn:
             pass
+
+
+@patch('trio_websocket._impl.open_websocket')
+def test_client_open_url_options(open_websocket_mock):
+    """open_websocket_url() must pass its options on to open_websocket()"""
+    port = 1234
+    url = 'ws://{}:{}{}'.format(HOST, port, RESOURCE)
+    options = {
+        'subprotocols': ['chat'],
+        'extra_headers': [(b'X-Test-Header', b'My test header')],
+        'message_queue_size': 9,
+        'max_message_size': 333,
+        'connect_timeout': 36,
+        'disconnect_timeout': 37,
+    }
+    open_websocket_url(url, **options)
+    _, call_args, call_kwargs = open_websocket_mock.mock_calls[0]
+    assert call_args == (HOST, port, RESOURCE)
+    assert not call_kwargs.pop('use_ssl')
+    assert call_kwargs == options
+
+    open_websocket_url(url.replace('ws:', 'wss:'))
+    _, call_args, call_kwargs = open_websocket_mock.mock_calls[1]
+    assert call_kwargs['use_ssl']
 
 
 async def test_client_connect(echo_server, nursery):

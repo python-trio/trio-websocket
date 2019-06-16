@@ -185,7 +185,8 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
     return open_websocket(host, port, resource, use_ssl=ssl_context,
         subprotocols=subprotocols, extra_headers=extra_headers,
         message_queue_size=message_queue_size,
-        max_message_size=max_message_size)
+        max_message_size=max_message_size,
+        connect_timeout=connect_timeout, disconnect_timeout=disconnect_timeout)
 
 
 async def connect_websocket_url(nursery, url, ssl_context=None, *,
