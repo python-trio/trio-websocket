@@ -44,6 +44,7 @@ from trio_websocket import (
     connect_websocket_url,
     ConnectionClosed,
     ConnectionRejected,
+    Endpoint,
     open_websocket,
     open_websocket_url,
     serve_websocket,
@@ -51,7 +52,6 @@ from trio_websocket import (
     wrap_client_stream,
     wrap_server_stream
 )
-from trio_websocket._impl import Endpoint
 
 
 HOST = '127.0.0.1'

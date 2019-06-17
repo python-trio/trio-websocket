@@ -4,6 +4,7 @@ from ._impl import (
     ConnectionRejected,
     connect_websocket,
     connect_websocket_url,
+    Endpoint,
     open_websocket,
     open_websocket_url,
     WebSocketConnection,
