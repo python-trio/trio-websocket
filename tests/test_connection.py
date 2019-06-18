@@ -45,7 +45,10 @@ from trio_websocket import (
     connect_websocket_url,
     ConnectionClosed,
     ConnectionRejected,
+    ConnectionTimeout,
+    DisconnectionTimeout,
     Endpoint,
+    HandshakeError,
     open_websocket,
     open_websocket_url,
     serve_websocket,
@@ -593,7 +596,7 @@ async def test_client_open_timeout(nursery, autojump_clock):
     server = await nursery.start(
         partial(serve_websocket, handler, HOST, 0, ssl_context=None))
 
-    with pytest.raises(trio.TooSlowError):
+    with pytest.raises(ConnectionTimeout):
         async with open_websocket(HOST, server.port, '/', use_ssl=False,
                 connect_timeout=TIMEOUT) as client_ws:
             pass
@@ -621,10 +624,19 @@ async def test_client_close_timeout(nursery, autojump_clock):
         partial(serve_websocket, handler, HOST, 0, ssl_context=None,
         message_queue_size=0))
 
-    with pytest.raises(trio.TooSlowError):
+    with pytest.raises(DisconnectionTimeout):
         async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
                 disconnect_timeout=TIMEOUT) as client_ws:
             await client_ws.send_message('test')
+
+
+async def test_client_connect_networking_error():
+    with patch('trio_websocket._impl.connect_websocket') as \
+            connect_websocket_mock:
+        connect_websocket_mock.side_effect = OSError()
+        with pytest.raises(HandshakeError):
+            async with open_websocket(HOST, 0, '/', use_ssl=False) as client_ws:
+                pass
 
 
 @fail_after(TIMEOUT_TEST_MAX_DURATION)
