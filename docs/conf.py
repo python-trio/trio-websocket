@@ -23,8 +23,7 @@ project = 'Trio WebSocket'
 copyright = '2018, Hyperion Gray'
 author = 'Hyperion Gray'
 
-import trio_websocket.version
-version = trio_websocket.version.__version__
+from trio_websocket._version import __version__ as version
 release = version
 
 

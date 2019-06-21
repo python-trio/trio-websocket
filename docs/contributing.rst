@@ -64,7 +64,7 @@ option to PyTest or using the Makefile target ``make test``::
     Name                         Stmts   Miss  Cover
     ------------------------------------------------
     trio_websocket/__init__.py     369     33    91%
-    trio_websocket/version.py        1      0   100%
+    trio_websocket/_version.py       1      0   100%
     ------------------------------------------------
     TOTAL                          370     33    91%
 
@@ -168,9 +168,9 @@ Release Process
 
 To release a new version of this library, we follow this process:
 
-1. In ``version.py`` on ``master`` branch, remove the ``-dev`` suffix from the
+1. In ``_version.py`` on ``master`` branch, remove the ``-dev`` suffix from the
    version number, e.g. change ``1.2.0-dev`` to ``1.2.0``.
-2. Commit ``version.py``.
+2. Commit ``_version.py``.
 3. Create a tag, e.g. ``git tag 1.2.0``.
 4. Push the commit and the tag, e.g. ``git push && git push origin 1.2.0``.
 5. Wait for `Travis CI <https://travis-ci.com/HyperionGray/trio-websocket>`__ to
@@ -180,7 +180,7 @@ To release a new version of this library, we follow this process:
 7. Ensure that the working copy is in a clean state, e.g. ``git status`` shows
    no changes.
 8. Build package and submit to PyPI: ``make publish``
-9. In ``version.py`` on ``master`` branch, increment the version number to the
+9. In ``_version.py`` on ``master`` branch, increment the version number to the
    next expected release and add the ``-dev`` suffix, e.g. change ``1.2.0`` to
    ``1.3.0-dev``.
-10. Commit and push ``version.py``.
+10. Commit and push ``_version.py``.
