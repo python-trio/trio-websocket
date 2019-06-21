@@ -5,7 +5,7 @@ here = Path(__file__).parent
 
 # Get version
 version = {}
-with (here / "trio_websocket" / "version.py").open() as f:
+with (here / "trio_websocket" / "_version.py").open() as f:
     exec(f.read(), version)
 
 

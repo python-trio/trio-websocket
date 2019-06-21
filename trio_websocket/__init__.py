@@ -17,3 +17,4 @@ from ._impl import (
     wrap_server_stream,
     serve_websocket,
 )
+from ._version import __version__

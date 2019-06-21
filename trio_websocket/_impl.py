@@ -27,8 +27,6 @@ from wsproto.events import (
 import wsproto.utilities
 from yarl import URL
 
-from .version import __version__
-
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
