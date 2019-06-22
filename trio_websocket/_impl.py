@@ -71,8 +71,8 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
     :param float disconnect_timeout: The number of seconds to wait when closing
         the connection before timing out.
     :raises HandshakeError: for any networking error,
-        client-side timeout (ConnectionTimeout, DisconnectionTimeout),
-        or server rejection (ConnectionRejected) during handshakes.
+        client-side timeout (:exc:`ConnectionTimeout`, :exc:`DisconnectionTimeout`),
+        or server rejection (:exc:`ConnectionRejected`) during handshakes.
     '''
     async with trio.open_nursery() as new_nursery:
         try:
@@ -188,8 +188,8 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
     :param float disconnect_timeout: The number of seconds to wait when closing
         the connection before timing out.
     :raises HandshakeError: for any networking error,
-        client-side timeout (ConnectionTimeout, DisconnectionTimeout),
-        or server rejection (ConnectionRejected) during handshakes.
+        client-side timeout (:exc:`ConnectionTimeout`, :exc:`DisconnectionTimeout`),
+        or server rejection (:exc:`ConnectionRejected`) during handshakes.
     '''
     host, port, resource, ssl_context = _url_to_host(url, ssl_context)
     return open_websocket(host, port, resource, use_ssl=ssl_context,

@@ -86,7 +86,17 @@ Connections
 
 .. autoexception:: ConnectionClosed
 
+.. autoexception:: HandshakeError
+
 .. autoexception:: ConnectionRejected
+    :show-inheritance:
+
+.. autoexception:: ConnectionTimeout
+    :show-inheritance:
+
+.. autoexception:: DisconnectionTimeout
+    :show-inheritance:
+
 
 Utilities
 ---------
@@ -94,5 +104,5 @@ Utilities
 These are classes that you do not need to instantiate yourself, but you may
 get access to instances of these classes through other APIs.
 
-.. autoclass:: trio_websocket._impl.Endpoint
+.. autoclass:: trio_websocket.Endpoint
     :members:
