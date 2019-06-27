@@ -311,7 +311,7 @@ async def wrap_server_stream(nursery, stream,
         ``len()``. If a message is received that is larger than this size,
         then the connection is closed with code 1009 (Message Too Big).
     :type stream: trio.abc.Stream
-    :rtype: WebSocketConnection
+    :rtype: WebSocketRequest
     '''
     wsproto = WSConnection(ConnectionType.SERVER)
     connection = WebSocketConnection(stream, wsproto,
