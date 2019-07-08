@@ -1327,9 +1327,9 @@ class WebSocketServer:
         '''
         Start serving incoming connections requests.
 
-        This method supports the Trio nursery start protocol: ``await
-        nursery.start(server.run, …)``. This ensures that the server is ready
-        to accept connections.
+        This method supports the Trio nursery start protocol: ``server = await
+        nursery.start(server.run, …)``. It will block until the server is 
+        accepting connections and then return a :class:`WebSocketServer` object.
 
         :param task_status: Part of the Trio nursery start protocol.
         :returns: This method never returns unless cancelled.
