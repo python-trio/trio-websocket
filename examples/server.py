@@ -51,7 +51,7 @@ async def main(args):
 
 async def handler(request):
     ''' Reverse incoming websocket messages and send them back. '''
-    logging.info('Handler starting on path "%s"' % request.url.path_qs)
+    logging.info('Handler starting on path "%s"' % request.path)
     ws = await request.accept()
     while True:
         try:
