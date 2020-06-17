@@ -1,5 +1,5 @@
 coveralls
-pytest>=3.6
+pytest>=4.6
 pytest-cov
 pytest-trio>=0.5.0
 sphinx
