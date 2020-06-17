@@ -29,7 +29,7 @@ same port is straightforward.  There has yet to be a performance comparison.
 
 ## Installation
 
-This library requires Python 3.5 or greater. To install from PyPI:
+This library requires Python 3.6 or greater. To install from PyPI:
 
     pip install trio-websocket
 
