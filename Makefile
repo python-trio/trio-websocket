@@ -17,3 +17,10 @@ publish:
 	rm -fr build dist .egg trio_websocket.egg-info
 	$(PYTHON) setup.py sdist
 	twine upload dist/*
+
+# upgrade all deps:
+#   make -W requirements-dev.{in,txt} PIP_COMPILE_ARGS="-U"
+# upgrade specific deps:
+#   make -W requirements-dev.{in,txt} PIP_COMPILE_ARGS="-P foo"
+requirements-dev.txt: setup.py requirements-dev.in
+	pip-compile -q $(PIP_COMPILE_ARGS) --output-file $@ $^
