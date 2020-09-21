@@ -1069,7 +1069,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._message_parts = []
             try:
                 await self._send_channel.send(msg)
-            except trio.BrokenResourceError:
+            except (trio.ClosedResourceError, trio.BrokenResourceError):
                 # The receive channel is closed, probably because somebody
                 # called ``aclose()``. We don't want to abort the reader task,
                 # and there's no useful cleanup that we can do here.
