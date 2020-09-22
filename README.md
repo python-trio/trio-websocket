@@ -1,6 +1,6 @@
 # Trio WebSocket
 
-This library implements [the WebSocket
+This library implements both server and client aspects of the [the WebSocket
 protocol](https://tools.ietf.org/html/rfc6455), striving for safety,
 correctness, and ergonomics. It is based on the [wsproto
 project](https://wsproto.readthedocs.io/en/latest/), which is a
@@ -19,6 +19,13 @@ available here](https://trio-websocket.readthedocs.io).
 [![Build Status](https://img.shields.io/travis/com/HyperionGray/trio-websocket.svg?style=flat-square&branch=master)](https://travis-ci.com/HyperionGray/trio-websocket)
 [![Coverage](https://img.shields.io/coveralls/github/HyperionGray/trio-websocket.svg?style=flat-square)](https://coveralls.io/github/HyperionGray/trio-websocket?branch=master)
 [![Read the Docs](https://img.shields.io/readthedocs/trio-websocket.svg)](https://trio-websocket.readthedocs.io)
+
+## Alternatives
+
+If you happen to only need a server, using Quart via the [quart-trio](https://gitlab.com/pgjones/quart-trio/)
+extension may suffice.  While trio-websocket is more flexible, Quart covers
+both HTTP and WebSocket within a single framework, and serving both from the
+same port is straightforward.  There has yet to be a performance comparison.
 
 ## Installation
 
