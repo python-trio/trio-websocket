@@ -733,11 +733,14 @@ async def test_client_does_not_close_handshake(nursery):
 
 
 async def test_server_sends_after_close(nursery):
+    done = trio.Event()
+
     async def handler(request):
         server_ws = await request.accept()
         with pytest.raises(ConnectionClosed):
             while True:
                 await server_ws.send_message('Hello from server')
+        done.set()
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     stream = await trio.open_tcp_stream(HOST, server.port)
@@ -747,6 +750,7 @@ async def test_server_sends_after_close(nursery):
         for x in range(2):
             await client_ws.send_message('Hello from client')
         await stream.aclose()
+    await done.wait()
 
 
 async def test_server_does_not_close_handshake(nursery):
