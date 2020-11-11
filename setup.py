@@ -40,7 +40,6 @@ setup(
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
         'async_generator>=1.10,<2',
-        'ipaddress>=1.0.22,<2',
         'trio>=0.11',
         # TODO: confirm whether wsaccel is relevant to performance
         # Disabled on pypy: https://github.com/methane/wsaccel/issues/19

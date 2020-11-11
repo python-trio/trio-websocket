@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from functools import partial
+from ipaddress import ip_address
 import itertools
 import logging
 import random
@@ -7,7 +8,6 @@ import ssl
 import struct
 
 from async_generator import async_generator, yield_, asynccontextmanager
-from ipaddress import ip_address
 import trio
 import trio.abc
 from wsproto import ConnectionType, WSConnection
