@@ -6,5 +6,6 @@ pytest-trio>=0.5.0
 sphinx
 sphinxcontrib-trio
 sphinx_rtd_theme
+trio>=0.15.0
 trustme
 twine

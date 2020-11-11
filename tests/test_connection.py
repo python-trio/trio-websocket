@@ -135,7 +135,7 @@ class MemoryListener(trio.abc.Listener):
         return client
 
     async def accept(self):
-        await trio.hazmat.checkpoint()
+        await trio.lowlevel.checkpoint()
         assert not self.closed
         if self.accept_hook is not None:
             await self.accept_hook()
@@ -145,7 +145,7 @@ class MemoryListener(trio.abc.Listener):
 
     async def aclose(self):
         self.closed = True
-        await trio.hazmat.checkpoint()
+        await trio.lowlevel.checkpoint()
 
 
 async def test_endpoint_ipv4():
@@ -181,7 +181,7 @@ async def test_server_has_listeners(nursery):
 
 
 async def test_serve(nursery):
-    task = trio.hazmat.current_task()
+    task = trio.lowlevel.current_task()
     server = await nursery.start(serve_websocket, echo_request_handler, HOST, 0,
         None)
     port = server.port
@@ -215,7 +215,7 @@ async def test_serve_ssl(nursery):
 
 
 async def test_serve_handler_nursery(nursery):
-    task = trio.hazmat.current_task()
+    task = trio.lowlevel.current_task()
     async with trio.open_nursery() as handler_nursery:
         serve_with_nursery = partial(serve_websocket, echo_request_handler,
             HOST, 0, None, handler_nursery=handler_nursery)
@@ -231,7 +231,7 @@ async def test_serve_handler_nursery(nursery):
 
 
 async def test_serve_with_zero_listeners(nursery):
-    task = trio.hazmat.current_task()
+    task = trio.lowlevel.current_task()
     with pytest.raises(ValueError):
         server = WebSocketServer(echo_request_handler, [])
 
