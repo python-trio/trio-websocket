@@ -121,7 +121,7 @@ class fail_after:
         return wrapper
 
 
-@attr.s(hash=False, cmp=False)
+@attr.s(hash=False, eq=False)
 class MemoryListener(trio.abc.Listener):
     closed = attr.ib(default=False)
     accepted_streams = attr.ib(factory=list)

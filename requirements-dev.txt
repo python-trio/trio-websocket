@@ -1,3 +1,4 @@
+attrs>=19.2.0
 coveralls
 pytest>=4.6
 pytest-cov
