@@ -44,7 +44,7 @@ setup(
         # TODO: confirm whether wsaccel is relevant to performance
         # Disabled on pypy: https://github.com/methane/wsaccel/issues/19
         'wsaccel>=0.6.2,<0.7;implementation_name!="pypy"',
-        'wsproto>=0.14,<0.15',
+        'wsproto>=0.14,<0.16',
         'yarl>=1.2.6,<2'
     ],
     project_urls={
