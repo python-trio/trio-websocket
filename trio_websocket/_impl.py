@@ -6,6 +6,7 @@ import logging
 import random
 import ssl
 import struct
+import urllib.parse
 
 from async_generator import async_generator, yield_, asynccontextmanager
 import trio
@@ -25,7 +26,6 @@ from wsproto.events import (
     TextMessage,
 )
 import wsproto.utilities
-from yarl import URL
 
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
@@ -247,14 +247,23 @@ def _url_to_host(url, ssl_context):
     :type ssl_context: ssl.SSLContext or None
     :returns: A tuple of ``(host, port, resource, ssl_context)``.
     '''
-    url = URL(url)
-    if url.scheme not in ('ws', 'wss'):
+    url = str(url)  # For backward compat with isinstance(url, yarl.URL).
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ('ws', 'wss'):
         raise ValueError('WebSocket URL scheme must be "ws:" or "wss:"')
     if ssl_context is None:
-        ssl_context = url.scheme == 'wss'
-    elif url.scheme == 'ws':
+        ssl_context = parts.scheme == 'wss'
+    elif parts.scheme == 'ws':
         raise ValueError('SSL context must be None for ws: URL scheme')
-    return url.host, url.port, url.path_qs, ssl_context
+    host = parts.hostname
+    if parts.port is not None:
+        port = parts.port
+    else:
+        port = 443 if ssl_context else 80
+    path_qs = parts.path
+    if '?' in url:
+        path_qs += '?' + parts.query
+    return host, port, path_qs, ssl_context
 
 
 async def wrap_client_stream(nursery, stream, host, resource, *,
@@ -1328,7 +1337,7 @@ class WebSocketServer:
         Start serving incoming connections requests.
 
         This method supports the Trio nursery start protocol: ``server = await
-        nursery.start(server.run, …)``. It will block until the server is 
+        nursery.start(server.run, …)``. It will block until the server is
         accepting connections and then return a :class:`WebSocketServer` object.
 
         :param task_status: Part of the Trio nursery start protocol.

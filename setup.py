@@ -42,7 +42,6 @@ setup(
         'async_generator>=1.10,<2',
         'trio>=0.11',
         'wsproto>=0.14,<0.16',
-        'yarl>=1.2.6,<2'
     ],
     project_urls={
         'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',

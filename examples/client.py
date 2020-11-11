@@ -10,10 +10,10 @@ import logging
 import pathlib
 import ssl
 import sys
+import urllib.parse
 
 import trio
 from trio_websocket import open_websocket_url, ConnectionClosed, HandshakeError
-import yarl
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -40,7 +40,7 @@ def parse_args():
 
 async def main(args):
     ''' Main entry point, returning False in the case of logged error. '''
-    if yarl.URL(args.url).scheme == 'wss':
+    if urllib.parse.urlsplit(args.url).scheme == 'wss':
         # Configure SSL context to handle our self-signed certificate. Most
         # clients won't need to do this.
         try:

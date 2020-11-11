@@ -287,6 +287,13 @@ async def test_client_open_invalid_url(echo_server):
             pass
 
 
+async def test_ascii_encoded_path_is_ok(echo_server):
+    path = '%D7%90%D7%91%D7%90?%D7%90%D7%9E%D7%90'
+    url = 'ws://{}:{}{}/{}'.format(HOST, echo_server.port, RESOURCE, path)
+    async with open_websocket_url(url) as conn:
+        assert conn.path == RESOURCE + '/' + path
+
+
 @patch('trio_websocket._impl.open_websocket')
 def test_client_open_url_options(open_websocket_mock):
     """open_websocket_url() must pass its options on to open_websocket()"""
