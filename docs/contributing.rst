@@ -15,14 +15,16 @@ environment, and install the developer dependencies::
     $ cd trio-websocket
     $ python3 -m venv venv
     $ source venv/bin/activate
-    (venv) $ pip install -e .
     (venv) $ pip install -r requirements-dev.txt
+    (venv) $ pip install -e .
 
 This example uses Python's built-in ``venv`` package, but you can of course use
 other virtual environment tools such as ``virtualenvwrapper``.
 
-The ``requirements-dev.txt`` file contains extra dependencies only needed for
-development, such as PyTest, Sphinx, etc.
+The ``requirements-dev.in`` file contains extra dependencies only needed for
+development, such as PyTest, Sphinx, etc.  Then ``requirements-dev.txt`` is
+generated from ``setup.py`` and ``requirements-dev.in`` so that dependencies
+used in development and CI builds do not change arbitrarily over time.
 
 Unit Tests
 ----------

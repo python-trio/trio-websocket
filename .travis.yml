@@ -4,18 +4,28 @@ dist: bionic
 git:
   depth: 1
 
-matrix:
+jobs:
   include:
     - python: 3.5
+      env: REQUIREMENTS=requirements-dev-3.5.txt
     - python: 3.6
+      env: REQUIREMENTS=requirements-dev.txt
     - python: 3.7
+      env: REQUIREMENTS=requirements-dev.txt
     - python: 3.8
+      env: REQUIREMENTS=requirements-dev.txt
     - python: 3.9
+      env: REQUIREMENTS=requirements-dev.txt
     - python: pypy3
+      env: REQUIREMENTS=requirements-dev.txt
+    - name: "latest deps"
+      python: 3.9
+      env: REQUIREMENTS=requirements-dev.txt UPGRADE="pip install --upgrade trio wsproto"
 
 install:
+  - pip install -r $REQUIREMENTS
+  - $UPGRADE
   - pip install -e .
-  - pip install -r requirements-dev.txt
 
 script:
   - make test
