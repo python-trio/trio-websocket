@@ -1,3 +1,4 @@
+attrs>=19.2.0
 coveralls
 pytest>=4.6
 pytest-cov
@@ -5,5 +6,6 @@ pytest-trio>=0.5.0,<0.6.0
 sphinx
 sphinxcontrib-trio
 sphinx_rtd_theme
+trio>=0.15.0
 trustme
 twine

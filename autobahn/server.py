@@ -13,7 +13,7 @@ import logging
 import sys
 
 import trio
-from trio_websocket import WebSocketServer, ConnectionClosed
+from trio_websocket import serve_websocket, ConnectionClosed
 
 
 BIND_IP = '0.0.0.0'
@@ -27,19 +27,19 @@ connection_count = 0
 async def main():
     ''' Main entry point. '''
     logger.info('Starting websocket server on ws://%s:%d', BIND_IP, BIND_PORT)
-    server = WebSocketServer(handler, BIND_IP, BIND_PORT, ssl_context=None)
-    await server.listen()
+    await serve_websocket(handler, BIND_IP, BIND_PORT, ssl_context=None)
 
 
-async def handler(websocket):
+async def handler(request):
     ''' Reverse incoming websocket messages and send them back. '''
     global connection_count
     connection_count += 1
     logger.info('Connection #%d', connection_count)
+    ws = await request.accept()
     while True:
         try:
-            message = await websocket.get_message()
-            await websocket.send_message(message)
+            message = await ws.get_message()
+            await ws.send_message(message)
         except ConnectionClosed:
             break
 

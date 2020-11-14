@@ -41,13 +41,8 @@ setup(
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
         'async_generator>=1.10,<2',
-        'ipaddress>=1.0.22,<2',
         'trio>=0.11',
-        # TODO: confirm whether wsaccel is relevant to performance
-        # Disabled on pypy: https://github.com/methane/wsaccel/issues/19
-        'wsaccel>=0.6.2,<0.7;implementation_name!="pypy"',
-        'wsproto>=0.14,<0.15',
-        'yarl>=1.2.6,<2'
+        'wsproto>=0.14,<0.16',
     ],
     project_urls={
         'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',

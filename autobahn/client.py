@@ -7,7 +7,6 @@ import logging
 
 import trio
 from trio_websocket import open_websocket_url, ConnectionClosed
-from yarl import URL
 
 
 AGENT = 'trio-websocket'
@@ -16,7 +15,7 @@ logger = logging.getLogger('client')
 
 
 async def get_case_count(url):
-    url = URL(url).with_path('/getCaseCount')
+    url = url + '/getCaseCount'
     async with open_websocket_url(url) as conn:
         case_count = await conn.get_message()
         logger.info('Case count=%s', case_count)
@@ -24,7 +23,7 @@ async def get_case_count(url):
 
 
 async def run_case(url, case):
-    url = URL(url).with_path('/runCase').with_query(case=case, agent=AGENT)
+    url = url + '/runCase?case={}&agent={}'.format(case, AGENT)
     try:
         async with open_websocket_url(url) as conn:
             while True:
@@ -35,7 +34,7 @@ async def run_case(url, case):
 
 
 async def update_reports(url):
-    url = URL(url).with_path('/updateReports').with_query(agent=AGENT)
+    url = url + '/updateReports?agent={}'.format(AGENT)
     async with open_websocket_url(url) as conn:
         # This command runs as soon as we connect to it, so we don't need to
         # send any messages.

@@ -121,7 +121,7 @@ class fail_after:
         return wrapper
 
 
-@attr.s(hash=False, cmp=False)
+@attr.s(hash=False, eq=False)
 class MemoryListener(trio.abc.Listener):
     closed = attr.ib(default=False)
     accepted_streams = attr.ib(factory=list)
@@ -135,7 +135,7 @@ class MemoryListener(trio.abc.Listener):
         return client
 
     async def accept(self):
-        await trio.hazmat.checkpoint()
+        await trio.lowlevel.checkpoint()
         assert not self.closed
         if self.accept_hook is not None:
             await self.accept_hook()
@@ -145,7 +145,7 @@ class MemoryListener(trio.abc.Listener):
 
     async def aclose(self):
         self.closed = True
-        await trio.hazmat.checkpoint()
+        await trio.lowlevel.checkpoint()
 
 
 async def test_endpoint_ipv4():
@@ -181,7 +181,7 @@ async def test_server_has_listeners(nursery):
 
 
 async def test_serve(nursery):
-    task = trio.hazmat.current_task()
+    task = trio.lowlevel.current_task()
     server = await nursery.start(serve_websocket, echo_request_handler, HOST, 0,
         None)
     port = server.port
@@ -215,7 +215,7 @@ async def test_serve_ssl(nursery):
 
 
 async def test_serve_handler_nursery(nursery):
-    task = trio.hazmat.current_task()
+    task = trio.lowlevel.current_task()
     async with trio.open_nursery() as handler_nursery:
         serve_with_nursery = partial(serve_websocket, echo_request_handler,
             HOST, 0, None, handler_nursery=handler_nursery)
@@ -231,7 +231,7 @@ async def test_serve_handler_nursery(nursery):
 
 
 async def test_serve_with_zero_listeners(nursery):
-    task = trio.hazmat.current_task()
+    task = trio.lowlevel.current_task()
     with pytest.raises(ValueError):
         server = WebSocketServer(echo_request_handler, [])
 
@@ -285,6 +285,13 @@ async def test_client_open_invalid_url(echo_server):
     with pytest.raises(ValueError):
         async with open_websocket_url('http://foo.com/bar') as conn:
             pass
+
+
+async def test_ascii_encoded_path_is_ok(echo_server):
+    path = '%D7%90%D7%91%D7%90?%D7%90%D7%9E%D7%90'
+    url = 'ws://{}:{}{}/{}'.format(HOST, echo_server.port, RESOURCE, path)
+    async with open_websocket_url(url) as conn:
+        assert conn.path == RESOURCE + '/' + path
 
 
 @patch('trio_websocket._impl.open_websocket')

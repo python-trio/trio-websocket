@@ -177,5 +177,4 @@ epub_exclude_files = ['search.html']
 # -- Extension configuration -------------------------------------------------
 intersphinx_mapping = {
     'trio': ('https://trio.readthedocs.io/en/stable/', None),
-    'yarl': ('https://yarl.readthedocs.io/en/stable/', None),
 }
