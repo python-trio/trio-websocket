@@ -910,3 +910,15 @@ async def test_close_race(nursery, autojump_clock):
     await connection.get_message()
     await connection.aclose()
     await trio.sleep(.1)
+
+
+async def test_finalization_dropped_exception(echo_server, autojump_clock):
+    # Confirm that open_websocket finalization does not contribute to dropped
+    # exceptions as described in https://github.com/python-trio/trio/issues/1559.
+    with pytest.raises(ValueError):
+        with trio.move_on_after(1):
+            async with open_websocket(HOST, echo_server.port, RESOURCE, use_ssl=False):
+                try:
+                    await trio.sleep_forever()
+                finally:
+                    raise ValueError
