@@ -10,6 +10,7 @@ from trio_websocket import open_websocket_url, ConnectionClosed
 
 
 AGENT = 'trio-websocket'
+MAX_MESSAGE_SIZE = 16 * 1024 * 1024
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('client')
 
@@ -25,7 +26,7 @@ async def get_case_count(url):
 async def run_case(url, case):
     url = url + '/runCase?case={}&agent={}'.format(case, AGENT)
     try:
-        async with open_websocket_url(url) as conn:
+        async with open_websocket_url(url, max_message_size=MAX_MESSAGE_SIZE) as conn:
             while True:
                 data = await conn.get_message()
                 await conn.send_message(data)
