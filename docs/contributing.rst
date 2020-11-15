@@ -147,6 +147,7 @@ In the second terminal, you will run the Docker image::
     $ docker run -it --rm \
           -v "${PWD}/config:/config" \
           -v "${PWD}/reports:/reports" \
+          -p 9000:9000 \
           --name autobahn \
           crossbario/autobahn-testsuite \
           /usr/local/bin/wstest --mode fuzzingclient --spec /config/fuzzingclient.json
@@ -154,6 +155,11 @@ In the second terminal, you will run the Docker image::
 If a test fails, ``server.py`` does not support the same ``debug_cases``
 argument as ``client.py``, but you can modify `fuzzingclient.json` to specify a
 subset of cases to run, e.g. ``3.*`` to run all test cases in section 3.
+
+.. note::
+
+    For OS X or Windows, you'll need to edit `fuzzingclient.json` and
+    change the host from ``172.17.0.1`` to ``host.docker.internal``.
 
 Versioning
 ----------
