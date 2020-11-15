@@ -1,0 +1,27 @@
+[MASTER]
+disable=duplicate-code,
+        fixme,
+        invalid-name,
+        missing-docstring,
+        not-async-context-manager,
+        protected-access,
+        redefined-outer-name,
+        too-few-public-methods,
+        too-many-ancestors,
+        too-many-arguments,
+        too-many-boolean-expressions,
+        too-many-branches,
+        too-many-instance-attributes,
+        too-many-lines,
+        too-many-locals,
+        too-many-nested-blocks,
+        too-many-public-methods,
+        too-many-return-statements,
+        too-many-statements,
+        unused-argument,
+        unused-variable,
+        wrong-spelling-in-comment,
+        wrong-spelling-in-docstring
+
+[REPORTS]
+score=no

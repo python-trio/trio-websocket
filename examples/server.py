@@ -12,7 +12,6 @@ import argparse
 import logging
 import pathlib
 import ssl
-import sys
 
 import trio
 from trio_websocket import serve_websocket, ConnectionClosed
@@ -51,7 +50,7 @@ async def main(args):
 
 async def handler(request):
     ''' Reverse incoming websocket messages and send them back. '''
-    logging.info('Handler starting on path "%s"' % request.path)
+    logging.info('Handler starting on path "%s"', request.path)
     ws = await request.accept()
     while True:
         try:

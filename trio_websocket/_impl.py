@@ -51,10 +51,9 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
     :param str host: The host to connect to.
     :param int port: The port to connect to.
     :param str resource: The resource, i.e. URL path.
-    :param use_ssl: If this is an SSL context, then use that context. If this is
-        ``True`` then use default SSL context. If this is ``False`` then disable
-        SSL.
-    :type use_ssl: bool or ssl.SSLContext
+    :param Union[bool, ssl.SSLContext] use_ssl: If this is an SSL context, then
+        use that context. If this is ``True`` then use default SSL context. If
+        this is ``False`` then disable SSL.
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
     :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples containing
@@ -112,7 +111,9 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     :param str host: The host to connect to.
     :param int port: The port to connect to.
     :param str resource: The resource, i.e. URL path.
-    :type use_ssl: bool or ssl.SSLContext
+    :param Union[bool, ssl.SSLContext] use_ssl: If this is an SSL context, then
+        use that context. If this is ``True`` then use default SSL context. If
+        this is ``False`` then disable SSL.
     :param subprotocols: An iterable of strings representing preferred
         subprotocols.
     :param list[tuple[bytes,bytes]] extra_headers: A list of 2-tuples containing
@@ -126,9 +127,9 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
         then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
-    if use_ssl == True:
+    if use_ssl is True:
         ssl_context = ssl.create_default_context()
-    elif use_ssl == False:
+    elif use_ssl is False:
         ssl_context = None
     elif isinstance(use_ssl, ssl.SSLContext):
         ssl_context = use_ssl
@@ -407,6 +408,7 @@ class ConnectionClosed(Exception):
         :param reason:
         :type reason: CloseReason
         '''
+        super().__init__()
         self.reason = reason
 
     def __repr__(self):
@@ -426,6 +428,7 @@ class ConnectionRejected(HandshakeError):
         :param reason:
         :type reason: CloseReason
         '''
+        super().__init__()
         #: a 3 digit HTTP status code
         self.status_code = status_code
         #: a tuple of 2-tuples containing header key/value pairs
@@ -774,7 +777,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         return self._handshake_headers
 
-    async def aclose(self, code=1000, reason=None):
+    async def aclose(self, code=1000, reason=None):  # pylint: disable=arguments-differ
         '''
         Close the WebSocket connection.
 
@@ -1176,16 +1179,15 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 if self._wsproto.state != ConnectionState.CLOSED:
                     await self._abort_web_socket()
                 break
-            else:
-                logger.debug('%s received %d bytes', self, len(data))
-                if self._wsproto.state != ConnectionState.CLOSED:
-                    try:
-                        self._wsproto.receive_data(data)
-                    except wsproto.utilities.RemoteProtocolError as err:
-                        logger.debug('%s remote protocol error: %s', self, err)
-                        if err.event_hint:
-                            await self._send(err.event_hint)
-                        await self._close_stream()
+            logger.debug('%s received %d bytes', self, len(data))
+            if self._wsproto.state != ConnectionState.CLOSED:
+                try:
+                    self._wsproto.receive_data(data)
+                except wsproto.utilities.RemoteProtocolError as err:
+                    logger.debug('%s remote protocol error: %s', self, err)
+                    if err.event_hint:
+                        await self._send(err.event_hint)
+                    await self._close_stream()
 
         logger.debug('%s reader task finished', self)
 
@@ -1231,8 +1233,7 @@ class Endpoint:
             port_str = ':' + str(self.port)
         if self.address.version == 4:
             return '{}://{}{}'.format(scheme, self.address, port_str)
-        else:
-            return '{}://[{}]{}'.format(scheme, self.address, port_str)
+        return '{}://[{}]{}'.format(scheme, self.address, port_str)
 
     def __repr__(self):
         ''' Return endpoint info as string. '''

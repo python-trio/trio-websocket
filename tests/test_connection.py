@@ -246,7 +246,7 @@ async def test_serve_non_tcp_listener(nursery):
     await nursery.start(server.run)
     assert len(server.listeners) == 1
     with pytest.raises(RuntimeError):
-        server.port
+        server.port  # pylint: disable=pointless-statement
     assert server.listeners[0].startswith('MemoryListener(')
 
 
@@ -259,7 +259,7 @@ async def test_serve_multiple_listeners(nursery):
     with pytest.raises(RuntimeError):
         # Even though the first listener has a port, this property is only
         # usable if you have exactly one listener.
-        server.port
+        server.port  # pylint: disable=pointless-statement
     # The first listener metadata is a ListenPort instance.
     assert server.listeners[0].port != 0
     # The second listener metadata is a string containing the repr() of a

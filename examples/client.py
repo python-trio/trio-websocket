@@ -103,7 +103,7 @@ async def heartbeat(ws, timeout, interval):
 async def get_commands(ws):
     ''' In a loop: get a command from the user and execute it. '''
     while True:
-        cmd = await trio.run_sync_in_worker_thread(input, 'cmd> ',
+        cmd = await trio.to_thread.run_sync(input, 'cmd> ',
             cancellable=True)
         if cmd.startswith('ping'):
             payload = cmd[5:].encode('utf8') or None

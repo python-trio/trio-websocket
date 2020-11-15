@@ -13,6 +13,9 @@ docs:
 test:
 	$(PYTHON) -m pytest --cov=trio_websocket
 
+lint:
+	$(PYTHON) -m pylint trio_websocket/ tests/ autobahn/ examples/
+
 publish:
 	rm -fr build dist .egg trio_websocket.egg-info
 	$(PYTHON) setup.py sdist

@@ -10,7 +10,6 @@ To use SSL/TLS: install the `trustme` package from PyPI and run the
 '''
 import argparse
 import logging
-import sys
 
 import trio
 from trio_websocket import serve_websocket, ConnectionClosed
@@ -32,7 +31,7 @@ async def main():
 
 async def handler(request):
     ''' Reverse incoming websocket messages and send them back. '''
-    global connection_count
+    global connection_count  # pylint: disable=global-statement
     connection_count += 1
     logger.info('Connection #%d', connection_count)
     ws = await request.accept()

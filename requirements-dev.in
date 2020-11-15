@@ -1,5 +1,6 @@
 attrs>=19.2.0
 coveralls
+pylint
 pytest>=4.6
 pytest-cov
 pytest-trio>=0.5.0
