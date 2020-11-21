@@ -48,6 +48,9 @@ class _preserve_current_exception:
     """
     __slots__ = ("_armed",)
 
+    def __init__(self):
+        self._armed = False
+
     def __enter__(self):
         self._armed = sys.exc_info()[1] is not None
 
