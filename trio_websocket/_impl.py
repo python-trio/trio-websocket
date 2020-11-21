@@ -1,3 +1,4 @@
+import sys
 from collections import OrderedDict
 from functools import partial
 from ipaddress import ip_address
@@ -33,6 +34,31 @@ MESSAGE_QUEUE_SIZE = 1
 MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
 RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
+
+
+class _preserve_current_exception:
+    """A context manager which should surround an ``__exit__`` or
+    ``__aexit__`` handler or the contents of a ``finally:``
+    block. It ensures that any exception that was being handled
+    upon entry is not masked by a `trio.Cancelled` raised within
+    the body of the context manager.
+
+    https://github.com/python-trio/trio/issues/1559
+    https://gitter.im/python-trio/general?at=5faf2293d37a1a13d6a582cf
+    """
+    __slots__ = ("_armed",)
+
+    def __enter__(self):
+        self._armed = sys.exc_info()[1] is not None
+
+    def __exit__(self, ty, value, tb):
+        if value is None or not self._armed:
+            return False
+
+        def remove_cancels(exc):
+            return None if isinstance(exc, trio.Cancelled) else exc
+
+        return trio.MultiError.filter(remove_cancels, value) is None
 
 
 @asynccontextmanager
@@ -792,6 +818,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param int code: A 4-digit code number indicating the type of closure.
         :param str reason: An optional string describing the closure.
         '''
+        with _preserve_current_exception():
+            await self._aclose(code, reason)
+
+    async def _aclose(self, code=1000, reason=None):
         if self._close_reason:
             # Per AsyncResource interface, calling aclose() on a closed resource
             # should succeed.
@@ -964,7 +994,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         ''' Close the TCP connection. '''
         self._reader_running = False
         try:
-            await self._stream.aclose()
+            with _preserve_current_exception():
+                await self._stream.aclose()
         except trio.BrokenResourceError:
             # This means the TCP connection is already dead.
             pass
@@ -1378,6 +1409,6 @@ class WebSocketServer:
                 await self._handler(request)
             finally:
                 with trio.move_on_after(self._disconnect_timeout):
-                    # aclose() will shut down the reader task even if its
+                    # aclose() will shut down the reader task even if it's
                     # cancelled:
                     await connection.aclose()
