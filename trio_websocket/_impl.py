@@ -9,7 +9,7 @@ import ssl
 import struct
 import urllib.parse
 
-from async_generator import async_generator, yield_, asynccontextmanager
+from async_generator import asynccontextmanager
 import trio
 import trio.abc
 from wsproto import ConnectionType, WSConnection
@@ -65,7 +65,6 @@ class _preserve_current_exception:
 
 
 @asynccontextmanager
-@async_generator
 async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
     extra_headers=None,
     message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
@@ -115,7 +114,7 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
         except OSError as e:
             raise HandshakeError from e
         try:
-            await yield_(connection)
+            yield connection
         finally:
             try:
                 with trio.fail_after(disconnect_timeout):
