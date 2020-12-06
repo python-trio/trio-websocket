@@ -276,6 +276,10 @@ async def test_client_open(echo_server):
 
 
 async def test_client_open_url(echo_server):
+    url = 'ws://{}:{}/'.format(HOST, echo_server.port)
+    async with open_websocket_url(url) as conn:
+        assert conn.path == '/'
+
     url = 'ws://{}:{}{}/path'.format(HOST, echo_server.port, RESOURCE)
     async with open_websocket_url(url) as conn:
         assert conn.path == RESOURCE + '/path'
@@ -283,6 +287,11 @@ async def test_client_open_url(echo_server):
     url = 'ws://{}:{}{}?foo=bar'.format(HOST, echo_server.port, RESOURCE)
     async with open_websocket_url(url) as conn:
         assert conn.path == RESOURCE + '?foo=bar'
+
+    # Zero-length path becomes '/'.
+    url = 'ws://{}:{}'.format(HOST, echo_server.port)
+    async with open_websocket_url(url) as conn:
+        assert conn.path == '/'
 
 
 async def test_client_open_invalid_url(echo_server):
