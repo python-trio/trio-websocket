@@ -1,5 +1,10 @@
 # Release history
 
+## trio-websocket 0.9.1 (2020-12-06)
+### Fixed
+- fix client open_websocket_url() when the URL path component is empty
+  ([#148](https://github.com/HyperionGray/trio-websocket/issues/148))
+
 ## trio-websocket 0.9.0 (2020-11-25)
 
 > **_NOTE:_** `wsaccel`, which was important for good performance of
