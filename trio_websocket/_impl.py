@@ -291,6 +291,11 @@ def _url_to_host(url, ssl_context):
     else:
         port = 443 if ssl_context else 80
     path_qs = parts.path
+    # RFC 7230, Section 5.3.1:
+    # If the target URI's path component is empty, the client MUST
+    # send "/" as the path within the origin-form of request-target.
+    if not path_qs:
+        path_qs = '/'
     if '?' in url:
         path_qs += '?' + parts.query
     return host, port, path_qs, ssl_context
