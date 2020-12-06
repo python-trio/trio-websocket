@@ -275,23 +275,16 @@ async def test_client_open(echo_server):
         assert str(conn).startswith('client-')
 
 
-async def test_client_open_url(echo_server):
-    url = 'ws://{}:{}/'.format(HOST, echo_server.port)
+@pytest.mark.parametrize('path, expected_path', [
+    ('/', '/'),
+    ('', '/'),
+    (RESOURCE + '/path', RESOURCE + '/path'),
+    (RESOURCE + '?foo=bar', RESOURCE + '?foo=bar')
+])
+async def test_client_open_url(path, expected_path, echo_server):
+    url = 'ws://{}:{}{}'.format(HOST, echo_server.port, path)
     async with open_websocket_url(url) as conn:
-        assert conn.path == '/'
-
-    url = 'ws://{}:{}{}/path'.format(HOST, echo_server.port, RESOURCE)
-    async with open_websocket_url(url) as conn:
-        assert conn.path == RESOURCE + '/path'
-
-    url = 'ws://{}:{}{}?foo=bar'.format(HOST, echo_server.port, RESOURCE)
-    async with open_websocket_url(url) as conn:
-        assert conn.path == RESOURCE + '?foo=bar'
-
-    # Zero-length path becomes '/'.
-    url = 'ws://{}:{}'.format(HOST, echo_server.port)
-    async with open_websocket_url(url) as conn:
-        assert conn.path == '/'
+        assert conn.path == expected_path
 
 
 async def test_client_open_invalid_url(echo_server):
