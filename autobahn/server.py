@@ -17,6 +17,7 @@ from trio_websocket import serve_websocket, ConnectionClosed
 
 BIND_IP = '0.0.0.0'
 BIND_PORT = 9000
+MAX_MESSAGE_SIZE = 16 * 1024 * 1024
 logging.basicConfig()
 logger = logging.getLogger('client')
 logger.setLevel(logging.INFO)
@@ -26,7 +27,8 @@ connection_count = 0
 async def main():
     ''' Main entry point. '''
     logger.info('Starting websocket server on ws://%s:%d', BIND_IP, BIND_PORT)
-    await serve_websocket(handler, BIND_IP, BIND_PORT, ssl_context=None)
+    await serve_websocket(handler, BIND_IP, BIND_PORT, ssl_context=None,
+                          max_message_size=MAX_MESSAGE_SIZE)
 
 
 async def handler(request):
