@@ -11,7 +11,7 @@ docs:
 	$(MAKE) -C docs html
 
 test:
-	$(PYTHON) -m pytest --cov=trio_websocket
+	$(PYTHON) -m pytest --cov=trio_websocket --no-cov-on-fail
 
 lint:
 	$(PYTHON) -m pylint trio_websocket/ tests/ autobahn/ examples/

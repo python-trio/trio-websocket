@@ -1094,6 +1094,12 @@ class WebSocketConnection(trio.abc.AsyncResource):
             await self._send(event.response())
         await self._close_web_socket(event.code, event.reason or None)
         self._close_handshake.set()
+        # RFC: "When a server is instructed to Close the WebSocket Connection
+        #   it SHOULD initiate a TCP Close immediately, and when a client is
+        #   instructed to do the same, it SHOULD wait for a TCP Close from the
+        #   server."
+        if self.is_server:
+            await self._close_stream()
 
     async def _handle_message_event(self, event):
         '''
