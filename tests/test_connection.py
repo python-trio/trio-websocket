@@ -39,10 +39,12 @@ import trio
 import trustme
 from async_generator import async_generator, yield_
 from trio.testing import memory_stream_pair
+from wsproto.events import CloseConnection
+
 try:
-    from trio.lowlevel import current_task
+    from trio.lowlevel import current_task  # pylint: disable=ungrouped-imports
 except ImportError:
-    from trio.hazmat import current_task
+    from trio.hazmat import current_task  # pylint: disable=ungrouped-imports
 
 from trio_websocket import (
     connect_websocket,
@@ -923,6 +925,29 @@ async def test_close_race(nursery, autojump_clock):
     await connection.get_message()
     await connection.aclose()
     await trio.sleep(.1)
+
+
+@fail_after(DEFAULT_TEST_MAX_DURATION)
+async def test_server_tcp_closed_on_close_connection_event(nursery):
+    """ensure server closes TCP immediately after receiving CloseConnection"""
+    server_stream_closed = trio.Event()
+
+    async def _close_stream_stub():
+        assert not server_stream_closed.is_set()
+        server_stream_closed.set()
+
+    async def handle_connection(request):
+        ws = await request.accept()
+        ws._close_stream = _close_stream_stub
+        await trio.sleep_forever()
+
+    server = await nursery.start(
+        partial(serve_websocket, handle_connection, HOST, 0, ssl_context=None))
+    client = await connect_websocket(nursery, HOST, server.port,
+                                     RESOURCE, use_ssl=False)
+    # send a CloseConnection event to server but leave client connected
+    await client._send(CloseConnection(code=1000))
+    await server_stream_closed.wait()
 
 
 async def test_finalization_dropped_exception(echo_server, autojump_clock):
