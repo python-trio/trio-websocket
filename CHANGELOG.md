@@ -1,5 +1,10 @@
 # Release history
 
+## trio-websocket 0.9.2 (2021-02-05)
+### Fixed
+- the server will now correctly close the TCP stream on a CloseConnection event
+  ([#115](https://github.com/HyperionGray/trio-websocket/issues/115))
+
 ## trio-websocket 0.9.1 (2020-12-06)
 ### Fixed
 - fix client open_websocket_url() when the URL path component is empty
