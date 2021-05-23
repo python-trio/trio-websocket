@@ -493,7 +493,7 @@ class CloseReason:
         Constructor.
 
         :param int code:
-        :param str reason:
+        :param Optional[str] reason:
         '''
         self._code = code
         try:
@@ -838,17 +838,22 @@ class WebSocketConnection(trio.abc.AsyncResource):
         with _preserve_current_exception():
             await self._aclose(code, reason)
 
-    async def _aclose(self, code=1000, reason=None):
+    async def _aclose(self, code, reason):
         if self._close_reason:
             # Per AsyncResource interface, calling aclose() on a closed resource
             # should succeed.
             return
         try:
             if self._wsproto.state == ConnectionState.OPEN:
+                # Our side is initiating the close, so send a close connection
+                # event to peer, while setting the local close reason to normal.
+                self._close_reason = CloseReason(1000, None)
                 await self._send(CloseConnection(code=code, reason=reason))
             elif self._wsproto.state in (ConnectionState.CONNECTING,
                     ConnectionState.REJECTING):
                 self._close_handshake.set()
+            # TODO: shouldn't the receive channel be closed earlier, so that
+            #  get_message() during send of the CloseConneciton event fails?
             await self._recv_channel.aclose()
             await self._close_handshake.wait()
         except ConnectionClosed:

@@ -791,7 +791,7 @@ async def test_server_handler_exit(nursery, autojump_clock):
     server = await nursery.start(
         partial(serve_websocket, handler, HOST, 0, ssl_context=None))
 
-    # connection should close when server handler exists
+    # connection should close when server handler exits
     with trio.fail_after(2):
         async with open_websocket(
                 HOST, server.port, '/', use_ssl=False) as connection:
