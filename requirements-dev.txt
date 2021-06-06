@@ -29,6 +29,8 @@ cffi==1.14.3
     # via cryptography
 chardet==3.0.4
     # via requests
+click==8.0.1
+    # via pip-tools
 colorama==0.4.4
     # via twine
 coverage==5.3
@@ -77,6 +79,10 @@ packaging==20.4
     #   bleach
     #   pytest
     #   sphinx
+pep517==0.10.0
+    # via pip-tools
+pip-tools==6.1.0
+    # via -r requirements-dev.in
 pkginfo==1.6.1
     # via twine
 pluggy==0.13.1
@@ -152,6 +158,7 @@ sphinxcontrib-trio==1.1.2
     # via -r requirements-dev.in
 toml==0.10.2
     # via
+    #   pep517
     #   pylint
     #   pytest
 tqdm==4.51.0
@@ -175,4 +182,5 @@ wsproto==0.15.0
     # via trio-websocket (setup.py)
 
 # The following packages are considered to be unsafe in a requirements file:
+# pip
 # setuptools

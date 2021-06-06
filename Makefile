@@ -21,9 +21,16 @@ publish:
 	$(PYTHON) setup.py sdist
 	twine upload dist/*
 
+# requirements-dev.txt will only be regenerated when PIP_COMPILE_ARGS is not
+# empty, and requires installatation of pip-tools.
+#
+# To change requirements, edit setup.py and requirements-dev.in files as necessary, then:
+#   make -W requirements-dev.{in,txt} PIP_COMPILE_ARGS="-q"
 # upgrade all deps:
 #   make -W requirements-dev.{in,txt} PIP_COMPILE_ARGS="-U"
 # upgrade specific deps:
 #   make -W requirements-dev.{in,txt} PIP_COMPILE_ARGS="-P foo"
+ifneq ($(PIP_COMPILE_ARGS),)
 requirements-dev.txt: setup.py requirements-dev.in
 	pip-compile -q $(PIP_COMPILE_ARGS) --output-file $@ $^
+endif
