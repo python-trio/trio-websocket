@@ -32,5 +32,5 @@ publish:
 #   make -W requirements-dev.{in,txt} PIP_COMPILE_ARGS="-P foo"
 ifneq ($(PIP_COMPILE_ARGS),)
 requirements-dev.txt: setup.py requirements-dev.in
-	pip-compile -q $(PIP_COMPILE_ARGS) --output-file $@ $^
+	pip-compile -q $(PIP_COMPILE_ARGS) --extra trio --output-file $@ $^
 endif

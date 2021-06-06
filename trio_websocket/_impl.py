@@ -9,6 +9,7 @@ import ssl
 import struct
 import urllib.parse
 
+import anyio
 from async_generator import asynccontextmanager
 import trio
 import trio.abc
@@ -101,15 +102,15 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
         client-side timeout (:exc:`ConnectionTimeout`, :exc:`DisconnectionTimeout`),
         or server rejection (:exc:`ConnectionRejected`) during handshakes.
     '''
-    async with trio.open_nursery() as new_nursery:
+    async with anyio.create_task_group() as new_nursery:
         try:
-            with trio.fail_after(connect_timeout):
+            with anyio.fail_after(connect_timeout):
                 connection = await connect_websocket(new_nursery, host, port,
                     resource, use_ssl=use_ssl, subprotocols=subprotocols,
                     extra_headers=extra_headers,
                     message_queue_size=message_queue_size,
                     max_message_size=max_message_size)
-        except trio.TooSlowError:
+        except TimeoutError:
             raise ConnectionTimeout from None
         except OSError as e:
             raise HandshakeError from e
@@ -117,9 +118,9 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
             yield connection
         finally:
             try:
-                with trio.fail_after(disconnect_timeout):
+                with anyio.fail_after(disconnect_timeout):
                     await connection.aclose()
-            except trio.TooSlowError:
+            except TimeoutError:
                 raise DisconnectionTimeout from None
 
 
@@ -368,7 +369,7 @@ async def wrap_server_stream(nursery, stream,
 async def serve_websocket(handler, host, port, ssl_context, *,
     handler_nursery=None, message_queue_size=MESSAGE_QUEUE_SIZE,
     max_message_size=MAX_MESSAGE_SIZE, connect_timeout=CONN_TIMEOUT,
-    disconnect_timeout=CONN_TIMEOUT, task_status=trio.TASK_STATUS_IGNORED):
+    disconnect_timeout=CONN_TIMEOUT, task_status=anyio.TASK_STATUS_IGNORED):
     '''
     Serve a WebSocket over TCP.
 
@@ -524,7 +525,7 @@ class Future:
     def __init__(self):
         ''' Constructor. '''
         self._value = None
-        self._value_event = trio.Event()
+        self._value_event = anyio.Event()
 
     def set_value(self, value):
         '''
@@ -723,7 +724,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._reject_status = None
         self._reject_headers = None
         self._reject_body = b''
-        self._send_channel, self._recv_channel = trio.open_memory_channel(
+        self._send_channel, self._recv_channel = anyio.create_memory_object_stream(
             message_queue_size)
         self._pings = OrderedDict()
         # Set when the server has received a connection request event. This
@@ -731,13 +732,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._connection_proposal = Future()
         # Set once the WebSocket open handshake takes place, i.e.
         # ConnectionRequested for server or ConnectedEstablished for client.
-        self._open_handshake = trio.Event()
+        self._open_handshake = anyio.Event()
         # Set once a WebSocket closed handshake takes place, i.e after a close
         # frame has been sent and a close frame has been received.
-        self._close_handshake = trio.Event()
+        self._close_handshake = anyio.Event()
         # Set immediately upon receiving closed event from peer.  Used to
         # test close race conditions between client and server.
-        self._for_testing_peer_closed_connection = trio.Event()
+        self._for_testing_peer_closed_connection = anyio.Event()
 
     @property
     def closed(self):
@@ -868,7 +869,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         try:
             message = await self._recv_channel.receive()
-        except (trio.ClosedResourceError, trio.EndOfChannel):
+        except (anyio.ClosedResourceError, anyio.EndOfStream):
             raise ConnectionClosed(self._close_reason) from None
         return message
 
@@ -899,7 +900,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 format(payload))
         if payload is None:
             payload = struct.pack('!I', random.getrandbits(32))
-        event = trio.Event()
+        event = anyio.Event()
         self._pings[payload] = event
         await self._send(Ping(payload=payload))
         await event.wait()
@@ -1003,7 +1004,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         try:
             with _preserve_current_exception():
                 await self._stream.aclose()
-        except trio.BrokenResourceError:
+        except (trio.BrokenResourceError, anyio.BrokenResourceError):
             # This means the TCP connection is already dead.
             pass
 
@@ -1088,7 +1089,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param wsproto.events.CloseConnection event:
         '''
         self._for_testing_peer_closed_connection.set()
-        await trio.sleep(0)
+        await anyio.sleep(0)
         if self._wsproto.state == ConnectionState.REMOTE_CLOSING:
             await self._send(event.response())
         await self._close_web_socket(event.code, event.reason or None)
@@ -1125,7 +1126,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._message_parts = []
             try:
                 await self._send_channel.send(msg)
-            except (trio.ClosedResourceError, trio.BrokenResourceError):
+            except (trio.ClosedResourceError, trio.BrokenResourceError, anyio.BrokenResourceError):
                 # The receive channel is closed, probably because somebody
                 # called ``aclose()``. We don't want to abort the reader task,
                 # and there's no useful cleanup that we can do here.
@@ -1212,7 +1213,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # Get network data.
             try:
                 data = await self._stream.receive_some(RECEIVE_BYTES)
-            except (trio.BrokenResourceError, trio.ClosedResourceError):
+            except (trio.BrokenResourceError, anyio.BrokenResourceError, trio.ClosedResourceError):
                 await self._abort_web_socket()
                 break
             if len(data) == 0:
@@ -1250,7 +1251,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             logger.debug('%s sending %d bytes', self, len(data))
             try:
                 await self._stream.send_all(data)
-            except (trio.BrokenResourceError, trio.ClosedResourceError):
+            except (trio.BrokenResourceError, anyio.BrokenResourceError, trio.ClosedResourceError):
                 await self._abort_web_socket()
                 raise ConnectionClosed(self._close_reason) from None
 
@@ -1377,7 +1378,7 @@ class WebSocketServer:
                 listeners.append(repr(listener))
         return listeners
 
-    async def run(self, *, task_status=trio.TASK_STATUS_IGNORED):
+    async def run(self, *, task_status=anyio.TASK_STATUS_IGNORED):
         '''
         Start serving incoming connections requests.
 
@@ -1388,7 +1389,7 @@ class WebSocketServer:
         :param task_status: Part of the Trio nursery start protocol.
         :returns: This method never returns unless cancelled.
         '''
-        async with trio.open_nursery() as nursery:
+        async with anyio.create_task_group() as nursery:
             serve_listeners = partial(trio.serve_listeners,
                 self._handle_connection, self._listeners,
                 handler_nursery=self._handler_nursery)
@@ -1396,7 +1397,7 @@ class WebSocketServer:
             logger.debug('Listening on %s',
                 ','.join([str(l) for l in self.listeners]))
             task_status.started(self)
-            await trio.sleep_forever()
+            await anyio.sleep_forever()
 
     async def _handle_connection(self, stream):
         '''
@@ -1406,22 +1407,24 @@ class WebSocketServer:
         :param stream:
         :type stream: trio.abc.Stream
         '''
-        async with trio.open_nursery() as nursery:
+        async with anyio.create_task_group() as nursery:
             wsproto = WSConnection(ConnectionType.SERVER)
             connection = WebSocketConnection(stream, wsproto,
                 message_queue_size=self._message_queue_size,
                 max_message_size=self._max_message_size)
             nursery.start_soon(connection._reader_task)
-            with trio.move_on_after(self._connect_timeout) as connect_scope:
+            have_request = False
+            with anyio.move_on_after(self._connect_timeout) as connect_scope:
                 request = await connection._get_request()
-            if connect_scope.cancelled_caught:
+                have_request = True
+            if not have_request:
                 nursery.cancel_scope.cancel()
                 await stream.aclose()
                 return
             try:
                 await self._handler(request)
             finally:
-                with trio.move_on_after(self._disconnect_timeout):
+                with anyio.move_on_after(self._disconnect_timeout):
                     # aclose() will shut down the reader task even if it's
                     # cancelled:
                     await connection.aclose()

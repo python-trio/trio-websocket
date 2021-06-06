@@ -39,10 +39,15 @@ setup(
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
+        'anyio ~= 3.0',
         'async_generator>=1.10',
-        'trio>=0.11',
         'wsproto>=0.14',
     ],
+    extras_require={
+        'trio': [
+            'anyio[trio] ~= 3.0',
+        ]
+    },
     project_urls={
         'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',
         'Source': 'https://github.com/HyperionGray/trio-websocket',
