@@ -13,12 +13,12 @@ jobs:
     - python: pypy3
     - name: "latest deps"
       python: 3.9
-      env: UPGRADE="pip install --upgrade trio wsproto"
+      env: UPGRADE="pip install --upgrade anyio trio wsproto"
 
 install:
   - pip install -r requirements-dev.txt
   - $UPGRADE
-  - pip install -e .
+  - pip install -e .[trio]
 
 script:
   - make test
