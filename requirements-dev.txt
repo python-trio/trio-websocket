@@ -43,8 +43,10 @@ coverage[toml]==6.2
     #   pytest-cov
 coveralls==3.3.1
     # via -r requirements-dev.in
-cryptography==3.3.2
-    # via trustme
+cryptography==3.2.1
+    # via
+    #   secretstorage
+    #   trustme
 docopt==0.6.2
     # via coveralls
 docutils==0.17.1
@@ -75,7 +77,11 @@ iniconfig==1.1.1
     # via pytest
 isort==5.10.1
     # via pylint
-jinja2==3.0.3
+jeepney==0.7.1
+    # via
+    #   keyring
+    #   secretstorage
+jinja2==2.11.2
     # via sphinx
 keyring==23.4.1
     # via twine
@@ -85,7 +91,13 @@ markupsafe==2.0.1
     # via jinja2
 mccabe==0.6.1
     # via pylint
-outcome==1.1.0
+mypy-extensions==0.4.3
+    # via
+    #   mypy
+    #   trio-typing
+mypy==0.910
+    # via -r requirements-dev.in
+outcome==1.0.1
     # via
     #   pytest-trio
     #   trio
@@ -137,10 +149,15 @@ requests==2.27.1
     #   twine
 requests-toolbelt==0.9.1
     # via twine
-rfc3986==1.5.0
-    # via twine
-six==1.16.0
-    # via bleach
+secretstorage==3.3.1
+    # via keyring
+six==1.15.0
+    # via
+    #   astroid
+    #   bleach
+    #   cryptography
+    #   packaging
+    #   readme-renderer
 sniffio==1.2.0
     # via trio
 snowballstemmer==2.2.0
@@ -170,6 +187,8 @@ sphinxcontrib-trio==1.1.2
     # via -r requirements-dev.in
 toml==0.10.2
     # via
+    #   mypy
+    #   pep517
     #   pylint
     #   pytest
 tomli==1.2.3
@@ -178,24 +197,23 @@ tomli==1.2.3
     #   pep517
 tqdm==4.62.3
     # via twine
-trio==0.19.0
+trio-typing==0.6.0
+    # via -r requirements-dev.in
+trio==0.17.0
     # via
     #   -r requirements-dev.in
     #   pytest-trio
+    #   trio-typing
     #   trio-websocket (setup.py)
 trustme==0.9.0
     # via -r requirements-dev.in
 twine==3.7.1
     # via -r requirements-dev.in
-typed-ast==1.5.1
-    # via astroid
 typing-extensions==4.0.1
     # via
-    #   astroid
-    #   immutables
-    #   importlib-metadata
-    #   pylint
-urllib3==1.26.8
+    #   mypy
+    #   trio-typing
+urllib3==1.26.2
     # via requests
 webencodings==0.5.1
     # via bleach

@@ -21,7 +21,11 @@ disable=duplicate-code,
         unused-argument,
         unused-variable,
         wrong-spelling-in-comment,
-        wrong-spelling-in-docstring
+        wrong-spelling-in-docstring,
+        # needed for explicit re-exports
+        useless-import-alias,
+        # false positives with generics
+        unsubscriptable-object
 
 [REPORTS]
 score=no

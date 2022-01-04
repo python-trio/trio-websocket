@@ -7,6 +7,9 @@ import logging
 import random
 import ssl
 import struct
+import types
+import typing
+from typing import Optional, Union
 import urllib.parse
 from typing import List
 
@@ -29,12 +32,16 @@ from wsproto.events import (
 )
 import wsproto.utilities
 
+if typing.TYPE_CHECKING:
+    from trio_typing import TaskStatus
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
 MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
 RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
+
+T = typing.TypeVar('T')
 
 
 class _preserve_current_exception:
@@ -49,17 +56,22 @@ class _preserve_current_exception:
     """
     __slots__ = ("_armed",)
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._armed = False
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self._armed = sys.exc_info()[1] is not None
 
-    def __exit__(self, ty, value, tb):
+    def __exit__(
+            self,
+            ty: Optional[typing.Type[BaseException]],
+            value: Optional[BaseException],
+            tb: Optional[types.TracebackType]
+    ) -> Optional[bool]:
         if value is None or not self._armed:
             return False
 
-        def remove_cancels(exc):
+        def remove_cancels(exc: BaseException) -> Optional[BaseException]:
             return None if isinstance(exc, trio.Cancelled) else exc
 
         return trio.MultiError.filter(remove_cancels, value) is None
@@ -124,9 +136,18 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
                 raise DisconnectionTimeout from None
 
 
-async def connect_websocket(nursery, host, port, resource, *, use_ssl,
-    subprotocols=None, extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
+async def connect_websocket(
+        nursery: trio.Nursery,
+        host: str,
+        port: int,
+        resource: str,
+        *,
+        use_ssl: Union[bool, ssl.SSLContext],
+        subprotocols: Optional[typing.Iterable[str]] = None,
+        extra_headers: Optional[typing.List[typing.Tuple[bytes, bytes]]] = None,
+        message_queue_size: int = MESSAGE_QUEUE_SIZE,
+        max_message_size: int = MAX_MESSAGE_SIZE
+) -> 'WebSocketConnection':
     '''
     Return an open WebSocket client connection to a host.
 
@@ -157,7 +178,7 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     :rtype: WebSocketConnection
     '''
     if use_ssl is True:
-        ssl_context = ssl.create_default_context()
+        ssl_context: Optional[ssl.SSLContext] = ssl.create_default_context()
     elif use_ssl is False:
         ssl_context = None
     elif isinstance(use_ssl, ssl.SSLContext):
@@ -168,7 +189,7 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     logger.debug('Connecting to ws%s://%s:%d%s',
         '' if ssl_context is None else 's', host, port, resource)
     if ssl_context is None:
-        stream = await trio.open_tcp_stream(host, port)
+        stream: trio.abc.Stream = await trio.open_tcp_stream(host, port)
     else:
         stream = await trio.open_ssl_over_tcp_stream(host, port,
             ssl_context=ssl_context, https_compatible=True)
@@ -188,10 +209,17 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     return connection
 
 
-def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
-    extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
-    connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
+def open_websocket_url(
+        url: str,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        *,
+        subprotocols: Optional[typing.Iterator[str]] = None,
+        extra_headers: Optional[typing.List[typing.Tuple[bytes, bytes]]] = None,
+        message_queue_size: int = MESSAGE_QUEUE_SIZE,
+        max_message_size: int = MAX_MESSAGE_SIZE,
+        connect_timeout: float = CONN_TIMEOUT,
+        disconnect_timeout: float = CONN_TIMEOUT
+) -> typing.AsyncContextManager['WebSocketConnection']:
     '''
     Open a WebSocket client connection to a URL.
 
@@ -222,17 +250,24 @@ def open_websocket_url(url, ssl_context=None, *, subprotocols=None,
         client-side timeout (:exc:`ConnectionTimeout`, :exc:`DisconnectionTimeout`),
         or server rejection (:exc:`ConnectionRejected`) during handshakes.
     '''
-    host, port, resource, ssl_context = _url_to_host(url, ssl_context)
-    return open_websocket(host, port, resource, use_ssl=ssl_context,
+    host, port, resource, ssl_context_ = _url_to_host(url, ssl_context)
+    return open_websocket(host, port, resource, use_ssl=ssl_context_,
         subprotocols=subprotocols, extra_headers=extra_headers,
         message_queue_size=message_queue_size,
         max_message_size=max_message_size,
         connect_timeout=connect_timeout, disconnect_timeout=disconnect_timeout)
 
 
-async def connect_websocket_url(nursery, url, ssl_context=None, *,
-    subprotocols=None, extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
+async def connect_websocket_url(
+        nursery: trio.Nursery,
+        url: str,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        *,
+        subprotocols: Optional[typing.Iterable[str]] = None,
+        extra_headers: Optional[typing.List[typing.Tuple[bytes, bytes]]] = None,
+        message_queue_size: int = MESSAGE_QUEUE_SIZE,
+        max_message_size: int = MAX_MESSAGE_SIZE
+) -> 'WebSocketConnection':
     '''
     Return an open WebSocket client connection to a URL.
 
@@ -259,14 +294,17 @@ async def connect_websocket_url(nursery, url, ssl_context=None, *,
         then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
-    host, port, resource, ssl_context = _url_to_host(url, ssl_context)
+    host, port, resource, ssl_context_ = _url_to_host(url, ssl_context)
     return await connect_websocket(nursery, host, port, resource,
-        use_ssl=ssl_context, subprotocols=subprotocols,
+        use_ssl=ssl_context_, subprotocols=subprotocols,
         extra_headers=extra_headers, message_queue_size=message_queue_size,
         max_message_size=max_message_size)
 
 
-def _url_to_host(url, ssl_context):
+def _url_to_host(
+        url: str,
+        ssl_context: Optional[ssl.SSLContext]
+) -> typing.Tuple[str, int, str, Union[bool, ssl.SSLContext]]:
     '''
     Convert a WebSocket URL to a (host,port,resource) tuple.
 
@@ -278,19 +316,22 @@ def _url_to_host(url, ssl_context):
     :type ssl_context: ssl.SSLContext or None
     :returns: A tuple of ``(host, port, resource, ssl_context)``.
     '''
+    ssl_context_: Union[bool, None, ssl.SSLContext] = ssl_context
     url = str(url)  # For backward compat with isinstance(url, yarl.URL).
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ('ws', 'wss'):
         raise ValueError('WebSocket URL scheme must be "ws:" or "wss:"')
-    if ssl_context is None:
-        ssl_context = parts.scheme == 'wss'
+    if ssl_context_ is None:
+        ssl_context_ = parts.scheme == 'wss'
     elif parts.scheme == 'ws':
         raise ValueError('SSL context must be None for ws: URL scheme')
     host = parts.hostname
+    if host is None:
+        raise ValueError('WebSocket URL must contain a host')
     if parts.port is not None:
         port = parts.port
     else:
-        port = 443 if ssl_context else 80
+        port = 443 if ssl_context_ else 80
     path_qs = parts.path
     # RFC 7230, Section 5.3.1:
     # If the target URI's path component is empty, the client MUST
@@ -299,12 +340,19 @@ def _url_to_host(url, ssl_context):
         path_qs = '/'
     if '?' in url:
         path_qs += '?' + parts.query
-    return host, port, path_qs, ssl_context
+    return host, port, path_qs, ssl_context_
 
 
-async def wrap_client_stream(nursery, stream, host, resource, *,
-    subprotocols=None, extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
+async def wrap_client_stream(
+        nursery: trio.Nursery,
+        stream: trio.abc.Stream,
+        host: str,
+        resource: str, *,
+        subprotocols: Optional[typing.Iterable[str]] = None,
+        extra_headers: Optional[typing.List[typing.Tuple[bytes, bytes]]] = None,
+        message_queue_size: int = MESSAGE_QUEUE_SIZE,
+        max_message_size: int = MAX_MESSAGE_SIZE
+) -> 'WebSocketConnection':
     '''
     Wrap an arbitrary stream in a WebSocket connection.
 
@@ -341,8 +389,12 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
     return connection
 
 
-async def wrap_server_stream(nursery, stream,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
+async def wrap_server_stream(
+        nursery: trio.Nursery,
+        stream: trio.abc.Stream,
+        message_queue_size: int = MESSAGE_QUEUE_SIZE,
+        max_message_size: int = MAX_MESSAGE_SIZE
+) -> 'WebSocketRequest':
     '''
     Wrap an arbitrary stream in a server-side WebSocket.
 
@@ -368,10 +420,19 @@ async def wrap_server_stream(nursery, stream,
     return request
 
 
-async def serve_websocket(handler, host, port, ssl_context, *,
-    handler_nursery=None, message_queue_size=MESSAGE_QUEUE_SIZE,
-    max_message_size=MAX_MESSAGE_SIZE, connect_timeout=CONN_TIMEOUT,
-    disconnect_timeout=CONN_TIMEOUT, task_status=trio.TASK_STATUS_IGNORED):
+async def serve_websocket(
+        handler: typing.Callable[['WebSocketRequest'], typing.Awaitable[object]],
+        host: Optional[str],
+        port: int,
+        ssl_context: Optional[ssl.SSLContext],
+        *,
+        handler_nursery: Optional[trio.Nursery] = None,
+        message_queue_size: int = MESSAGE_QUEUE_SIZE,
+        max_message_size: int = MAX_MESSAGE_SIZE,
+        connect_timeout: float = CONN_TIMEOUT,
+        disconnect_timeout: float = CONN_TIMEOUT,
+        task_status: 'TaskStatus[WebSocketServer]' = trio.TASK_STATUS_IGNORED
+) -> typing.NoReturn:
     '''
     Serve a WebSocket over TCP.
 
@@ -407,6 +468,10 @@ async def serve_websocket(handler, host, port, ssl_context, *,
     :param task_status: Part of Trio nursery start protocol.
     :returns: This function runs until cancelled.
     '''
+    open_tcp_listeners: Union[
+        partial[typing.Coroutine[typing.Any, typing.Any, typing.Sequence[trio.SSLListener]]],
+        partial[typing.Coroutine[typing.Any, typing.Any, typing.Sequence[trio.SocketListener]]]
+    ]
     if ssl_context is None:
         open_tcp_listeners = partial(trio.open_tcp_listeners, port, host=host)
     else:
@@ -437,7 +502,7 @@ class ConnectionClosed(Exception):
     A WebSocket operation cannot be completed because the connection is closed
     or in the process of closing.
     '''
-    def __init__(self, reason):
+    def __init__(self, reason: 'CloseReason') -> None:
         '''
         Constructor.
 
@@ -447,7 +512,7 @@ class ConnectionClosed(Exception):
         super().__init__()
         self.reason = reason
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         ''' Return representation. '''
         return f'{self.__class__.__name__}<{self.reason}>'
 
@@ -457,7 +522,12 @@ class ConnectionRejected(HandshakeError):
     A WebSocket connection could not be established because the server rejected
     the connection attempt.
     '''
-    def __init__(self, status_code, headers, body):
+    def __init__(
+            self,
+            status_code: int,
+            headers: Optional[typing.Tuple[typing.Tuple[bytes, bytes], ...]],
+            body: Optional[bytes]
+    ) -> None:
         '''
         Constructor.
 
@@ -472,14 +542,14 @@ class ConnectionRejected(HandshakeError):
         #: an optional ``bytes`` response body
         self.body = body
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         ''' Return representation. '''
         return f'{self.__class__.__name__}<status_code={self.status_code}>'
 
 
 class CloseReason:
     ''' Contains information about why a WebSocket was closed. '''
-    def __init__(self, code, reason):
+    def __init__(self, code: int, reason: Optional[str]) -> None:
         '''
         Constructor.
 
@@ -501,34 +571,34 @@ class CloseReason:
         self._reason = reason
 
     @property
-    def code(self):
+    def code(self) -> int:
         ''' (Read-only) The numeric close code. '''
         return self._code
 
     @property
-    def name(self):
+    def name(self) -> str:
         ''' (Read-only) The human-readable close code. '''
         return self._name
 
     @property
-    def reason(self):
+    def reason(self) -> Optional[str]:
         ''' (Read-only) An arbitrary reason string. '''
         return self._reason
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         ''' Show close code, name, and reason. '''
         return f'{self.__class__.__name__}' \
                f'<code={self.code}, name={self.name}, reason={self.reason}>'
 
 
-class Future:
+class Future(typing.Generic[T]):
     ''' Represents a value that will be available in the future. '''
-    def __init__(self):
+    def __init__(self) -> None:
         ''' Constructor. '''
-        self._value = None
+        self._value: Optional[T] = None
         self._value_event = trio.Event()
 
-    def set_value(self, value):
+    def set_value(self, value: T) -> None:
         '''
         Set a value, which will notify any waiters.
 
@@ -537,13 +607,14 @@ class Future:
         self._value = value
         self._value_event.set()
 
-    async def wait_value(self):
+    async def wait_value(self) -> T:
         '''
         Wait for this future to have a value, then return it.
 
         :returns: The value set by ``set_value()``.
         '''
         await self._value_event.wait()
+        assert self._value is not None
         return self._value
 
 
@@ -554,7 +625,7 @@ class WebSocketRequest:
     The server may modify the handshake or leave it as is. The server should
     call ``accept()`` to finish the handshake and obtain a connection object.
     '''
-    def __init__(self, connection, event):
+    def __init__(self, connection: 'WebSocketConnection', event: wsproto.events.Request) -> None:
         '''
         Constructor.
 
@@ -565,7 +636,7 @@ class WebSocketRequest:
         self._event = event
 
     @property
-    def headers(self):
+    def headers(self) -> typing.List[typing.Tuple[bytes, bytes]]:
         '''
         HTTP headers represented as a list of (name, value) pairs.
 
@@ -574,7 +645,7 @@ class WebSocketRequest:
         return self._event.extra_headers
 
     @property
-    def path(self):
+    def path(self) -> str:
         '''
         The requested URL path.
 
@@ -583,7 +654,7 @@ class WebSocketRequest:
         return self._event.target
 
     @property
-    def proposed_subprotocols(self):
+    def proposed_subprotocols(self) -> typing.Tuple[str, ...]:
         '''
         A tuple of protocols proposed by the client.
 
@@ -592,7 +663,7 @@ class WebSocketRequest:
         return tuple(self._event.subprotocols)
 
     @property
-    def local(self):
+    def local(self) -> Union['Endpoint', str]:
         '''
         The connection's local endpoint.
 
@@ -601,7 +672,7 @@ class WebSocketRequest:
         return self._connection.local
 
     @property
-    def remote(self):
+    def remote(self) -> Union['Endpoint', str]:
         '''
         The connection's remote endpoint.
 
@@ -609,7 +680,12 @@ class WebSocketRequest:
         '''
         return self._connection.remote
 
-    async def accept(self, *, subprotocol=None, extra_headers=None):
+    async def accept(
+            self,
+            *,
+            subprotocol: Optional[str] = None,
+            extra_headers: Optional[typing.List[typing.Tuple[bytes, bytes]]] = None
+    ) -> 'WebSocketConnection':
         '''
         Accept the request and return a connection object.
 
@@ -625,7 +701,13 @@ class WebSocketRequest:
         await self._connection._accept(self._event, subprotocol, extra_headers)
         return self._connection
 
-    async def reject(self, status_code, *, extra_headers=None, body=None):
+    async def reject(
+            self,
+            status_code: int,
+            *,
+            extra_headers: Optional[typing.List[typing.Tuple[bytes, bytes]]] = None,
+            body: Optional[bytes] = None
+    ) -> None:
         '''
         Reject the handshake.
 
@@ -643,11 +725,11 @@ class WebSocketRequest:
         await self._connection._reject(status_code, extra_headers, body)
 
 
-def _get_stream_endpoint(stream, *, local):
+def _get_stream_endpoint(stream: trio.abc.Stream, *, local: bool) -> Union['Endpoint', str]:
     '''
     Construct an endpoint from a stream.
 
-    :param trio.Stream stream:
+    :param trio.abc.Stream stream:
     :param bool local: If true, return local endpoint. Otherwise return remote.
     :returns: An endpoint instance or ``repr()`` for streams that cannot be
         represented as an endpoint.
@@ -657,11 +739,14 @@ def _get_stream_endpoint(stream, *, local):
     if isinstance(stream, trio.SocketStream):
         socket = stream.socket
     elif isinstance(stream, trio.SSLStream):
-        socket = stream.transport_stream.socket
+        if isinstance(stream.transport_stream, trio.SocketStream):
+            socket = stream.transport_stream.socket
+        else:
+            socket = None
         is_ssl = True
     if socket:
         addr, port, *_ = socket.getsockname() if local else socket.getpeername()
-        endpoint = Endpoint(addr, port, is_ssl)
+        endpoint: Union[Endpoint, str] = Endpoint(addr, port, is_ssl)
     else:
         endpoint = repr(stream)
     return endpoint
@@ -702,33 +787,33 @@ class WebSocketConnection(trio.abc.AsyncResource):
             ``len()``. If a message is received that is larger than this size,
             then the connection is closed with code 1009 (Message Too Big).
         '''
-        self._close_reason = None
+        self._close_reason: Optional[CloseReason] = None
         self._id = next(self.__class__.CONNECTION_ID)
         self._stream = stream
         self._stream_lock = trio.StrictFIFOLock()
         self._wsproto = ws_connection
         self._message_size = 0
-        self._message_parts = []  # type: List[bytes|str]
+        self._message_parts = []  # type: typing.List[Union[bytes, str]]
         self._max_message_size = max_message_size
         self._reader_running = True
         if ws_connection.client:
             self._initial_request = Request(host=host, target=path,
                 subprotocols=client_subprotocols,
-                extra_headers=client_extra_headers or [])
+                extra_headers=client_extra_headers or [])  # type: ignore[call-arg]
         else:
             self._initial_request = None
         self._path = path
-        self._subprotocol = None
-        self._handshake_headers = None
-        self._reject_status = None
-        self._reject_headers = None
+        self._subprotocol: Optional[str] = None
+        self._handshake_headers: Optional[typing.Tuple[typing.Tuple[bytes, bytes], ...]] = None
+        self._reject_status: Optional[int] = None
+        self._reject_headers: Optional[typing.Tuple[typing.Tuple[bytes, bytes], ...]] = None
         self._reject_body = b''
-        self._send_channel, self._recv_channel = trio.open_memory_channel(
+        self._send_channel, self._recv_channel = trio.open_memory_channel[Union[str, bytes]](
             message_queue_size)
-        self._pings = OrderedDict()
+        self._pings: OrderedDict[bytes, trio.Event] = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
-        self._connection_proposal = Future()
+        self._connection_proposal: Optional[Future[WebSocketRequest]] = Future()
         # Set once the WebSocket open handshake takes place, i.e.
         # ConnectionRequested for server or ConnectedEstablished for client.
         self._open_handshake = trio.Event()
@@ -740,7 +825,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._for_testing_peer_closed_connection = trio.Event()
 
     @property
-    def closed(self):
+    def closed(self) -> Optional['CloseReason']:
         '''
         (Read-only) The reason why the connection was closed, or ``None`` if the
         connection is still open.
@@ -750,17 +835,17 @@ class WebSocketConnection(trio.abc.AsyncResource):
         return self._close_reason
 
     @property
-    def is_client(self):
+    def is_client(self) -> bool:
         ''' (Read-only) Is this a client instance? '''
         return self._wsproto.client
 
     @property
-    def is_server(self):
+    def is_server(self) -> bool:
         ''' (Read-only) Is this a server instance? '''
         return not self._wsproto.client
 
     @property
-    def local(self):
+    def local(self) -> Union['Endpoint', str]:
         '''
         The local endpoint of the connection.
 
@@ -769,7 +854,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         return _get_stream_endpoint(self._stream, local=True)
 
     @property
-    def remote(self):
+    def remote(self) -> Union['Endpoint', str]:
         '''
         The remote endpoint of the connection.
 
@@ -778,17 +863,18 @@ class WebSocketConnection(trio.abc.AsyncResource):
         return _get_stream_endpoint(self._stream, local=False)
 
     @property
-    def path(self):
+    def path(self) -> str:
         '''
         The requested URL path. For clients, this is set when the connection is
         instantiated. For servers, it is set after the handshake completes.
 
         :rtype: str
         '''
-        return self._path
+        # TODO: make sure self._path is not none before this
+        return self._path  # type: ignore[return-value]
 
     @property
-    def subprotocol(self):
+    def subprotocol(self) -> Optional[str]:
         '''
         (Read-only) The negotiated subprotocol, or ``None`` if there is no
         subprotocol.
@@ -800,17 +886,18 @@ class WebSocketConnection(trio.abc.AsyncResource):
         return self._subprotocol
 
     @property
-    def handshake_headers(self):
+    def handshake_headers(self) -> typing.Tuple[typing.Tuple[bytes, bytes], ...]:
         '''
         The HTTP headers that were sent by the remote during the handshake,
         stored as 2-tuples containing key/value pairs. Header keys are always
         lower case.
 
-        :rtype: tuple[tuple[str,str]]
+        :rtype: tuple[tuple[bytes,bytes]]
         '''
-        return self._handshake_headers
+        # TODO: make sure self._handshake_headers is not none before this
+        return self._handshake_headers  # type: ignore[return-value]
 
-    async def aclose(self, code=1000, reason=None):  # pylint: disable=arguments-differ
+    async def aclose(self, code: int = 1000, reason: Optional[str] = None) -> None:  # pylint: disable=arguments-differ
         '''
         Close the WebSocket connection.
 
@@ -828,14 +915,16 @@ class WebSocketConnection(trio.abc.AsyncResource):
         with _preserve_current_exception():
             await self._aclose(code, reason)
 
-    async def _aclose(self, code=1000, reason=None):
+    async def _aclose(self, code: int = 1000, reason: Optional[str] = None) -> None:
         if self._close_reason:
             # Per AsyncResource interface, calling aclose() on a closed resource
             # should succeed.
             return
         try:
             if self._wsproto.state == ConnectionState.OPEN:
-                await self._send(CloseConnection(code=code, reason=reason))
+                # dataclasses and 3.6
+                await self._send(CloseConnection(code=code,  # type: ignore[call-arg]
+                                reason=reason))
             elif self._wsproto.state in (ConnectionState.CONNECTING,
                     ConnectionState.REJECTING):
                 self._close_handshake.set()
@@ -849,7 +938,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # stream is closed.
             await self._close_stream()
 
-    async def get_message(self):
+    async def get_message(self) -> Union[str, bytes]:
         '''
         Receive the next WebSocket message.
 
@@ -869,10 +958,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
         try:
             message = await self._recv_channel.receive()
         except (trio.ClosedResourceError, trio.EndOfChannel):
-            raise ConnectionClosed(self._close_reason) from None
+            # TODO: make sure self._close_reason is always non-optional
+            raise ConnectionClosed(self._close_reason) from None  # type: ignore[arg-type]
         return message
 
-    async def ping(self, payload=None):
+    async def ping(self, payload: Optional[bytes] = None) -> None:
         '''
         Send WebSocket ping to remote endpoint and wait for a correspoding pong.
 
@@ -900,10 +990,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
             payload = struct.pack('!I', random.getrandbits(32))
         event = trio.Event()
         self._pings[payload] = event
-        await self._send(Ping(payload=payload))
+        # dataclasses and 3.6
+        await self._send(Ping(payload=payload))  # type: ignore[call-arg]
         await event.wait()
 
-    async def pong(self, payload=None):
+    async def pong(self, payload: Optional[bytes] = None) -> None:
         '''
         Send an unsolicted pong.
 
@@ -914,9 +1005,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
-        await self._send(Pong(payload=payload))
+        # dataclasses and 3.6
+        await self._send(Pong(payload=payload))  # type: ignore[call-arg]
 
-    async def send_message(self, message):
+    async def send_message(self, message: Union[str, bytes]) -> None:
         '''
         Send a WebSocket message.
 
@@ -926,20 +1018,28 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
+        event: Union[TextMessage, BytesMessage]
         if isinstance(message, str):
-            event = TextMessage(data=message)
+            # dataclasses and 3.6
+            event = TextMessage(data=message)  # type: ignore[call-arg]
         elif isinstance(message, bytes):
-            event = BytesMessage(data=message)
+            # dataclasses and 3.6
+            event = BytesMessage(data=message)  # type: ignore[call-arg]
         else:
             raise ValueError('message must be str or bytes')
         await self._send(event)
 
-    def __str__(self):
+    def __str__(self) -> str:
         ''' Connection ID and type. '''
         type_ = 'client' if self.is_client else 'server'
         return f'{type_}-{self._id}'
 
-    async def _accept(self, request, subprotocol, extra_headers):
+    async def _accept(
+            self,
+            request: Request,
+            subprotocol: Optional[str],
+            extra_headers: typing.List[typing.Tuple[bytes, bytes]]
+    ) -> None:
         '''
         Accept the handshake.
 
@@ -953,11 +1053,17 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._subprotocol = subprotocol
         self._path = request.target
-        await self._send(AcceptConnection(subprotocol=self._subprotocol,
+        # dataclasses and 3.6
+        await self._send(AcceptConnection(subprotocol=self._subprotocol,  # type: ignore[call-arg]
             extra_headers=extra_headers))
         self._open_handshake.set()
 
-    async def _reject(self, status_code, headers, body):
+    async def _reject(
+            self,
+            status_code: int,
+            headers: typing.List[typing.Tuple[bytes, bytes]],
+            body: bytes
+    ) -> None:
         '''
         Reject the handshake.
 
@@ -969,17 +1075,19 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param bytes body: An optional response body.
         '''
         if body:
-            headers.append(('Content-length', str(len(body)).encode('ascii')))
-        reject_conn = RejectConnection(status_code=status_code, headers=headers,
-            has_body=bool(body))
+            headers.append((b'Content-length', str(len(body)).encode('ascii')))
+        # dataclasses and 3.6
+        reject_conn = RejectConnection(status_code=status_code,  # type: ignore[call-arg]
+            headers=headers, has_body=bool(body))
         await self._send(reject_conn)
         if body:
-            reject_body = RejectData(data=body)
+            # dataclasses and 3.6
+            reject_body = RejectData(data=body)  # type: ignore[call-arg]
             await self._send(reject_body)
         self._close_reason = CloseReason(1006, 'Rejected WebSocket handshake')
         self._close_handshake.set()
 
-    async def _abort_web_socket(self):
+    async def _abort_web_socket(self) -> None:
         '''
         If a stream is closed outside of this class, e.g. due to network
         conditions or because some other code closed our stream object, then we
@@ -988,7 +1096,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         close_reason = wsframeproto.CloseReason.ABNORMAL_CLOSURE
         if self._wsproto.state == ConnectionState.OPEN:
-            self._wsproto.send(CloseConnection(code=close_reason.value))
+            # dataclasses and 3.6
+            self._wsproto.send(CloseConnection(code=close_reason.value))  # type: ignore[call-arg]
         if self._close_reason is None:
             await self._close_web_socket(close_reason)
         self._reader_running = False
@@ -996,7 +1105,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         # (e.g. self.aclose()) to resume.
         self._close_handshake.set()
 
-    async def _close_stream(self):
+    async def _close_stream(self) -> None:
         ''' Close the TCP connection. '''
         self._reader_running = False
         try:
@@ -1006,7 +1115,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             # This means the TCP connection is already dead.
             pass
 
-    async def _close_web_socket(self, code, reason=None):
+    async def _close_web_socket(self, code: int, reason: Optional[str] = None) -> None:
         '''
         Mark the WebSocket as closed. Close the message channel so that if any
         tasks are suspended in get_message(), they will wake up with a
@@ -1017,7 +1126,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         logger.debug('%s websocket closed %r', self, exc)
         await self._send_channel.aclose()
 
-    async def _get_request(self):
+    async def _get_request(self) -> 'WebSocketRequest':
         '''
         Return a proposal for a WebSocket handshake.
 
@@ -1035,7 +1144,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._connection_proposal = None
         return proposal
 
-    async def _handle_request_event(self, event):
+    async def _handle_request_event(self, event: Request) -> None:
         '''
         Handle a connection request.
 
@@ -1045,9 +1154,12 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param event:
         '''
         proposal = WebSocketRequest(self, event)
+        if self._connection_proposal is None:
+            raise Exception('No proposal available. Did you call this method'
+                ' multiple times or at the wrong time?')
         self._connection_proposal.set_value(proposal)
 
-    async def _handle_accept_connection_event(self, event):
+    async def _handle_accept_connection_event(self, event: AcceptConnection) -> None:
         '''
         Handle an AcceptConnection event.
 
@@ -1057,7 +1169,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._handshake_headers = tuple(event.extra_headers)
         self._open_handshake.set()
 
-    async def _handle_reject_connection_event(self, event):
+    async def _handle_reject_connection_event(self, event: RejectConnection) -> None:
         '''
         Handle a RejectConnection event.
 
@@ -1069,7 +1181,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             raise ConnectionRejected(self._reject_status, self._reject_headers,
                 body=None)
 
-    async def _handle_reject_data_event(self, event):
+    async def _handle_reject_data_event(self, event: RejectData) -> None:
         '''
         Handle a RejectData event.
 
@@ -1077,10 +1189,14 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         self._reject_body += event.data
         if event.body_finished:
-            raise ConnectionRejected(self._reject_status, self._reject_headers,
-                body=self._reject_body)
+            raise ConnectionRejected(
+                # TODO: is _reject_status guaranteed to be non-optional?
+                self._reject_status,  # type: ignore[arg-type]
+                self._reject_headers,
+                body=self._reject_body
+            )
 
-    async def _handle_close_connection_event(self, event):
+    async def _handle_close_connection_event(self, event: CloseConnection) -> None:
         '''
         Handle a close event.
 
@@ -1099,7 +1215,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         if self.is_server:
             await self._close_stream()
 
-    async def _handle_message_event(self, event):
+    async def _handle_message_event(self, event: Union[BytesMessage, TextMessage]) -> None:
         '''
         Handle a message event.
 
@@ -1113,12 +1229,14 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._message_size = 0
             self._message_parts = []
             self._close_reason = CloseReason(1009, err)
-            await self._send(CloseConnection(code=1009, reason=err))
+            # >=3.7 wsproto uses dataclasses which mypy configured for 3.6 doesn't understand
+            await self._send(CloseConnection(code=1009, reason=err))  # type: ignore[call-arg]
             await self._recv_channel.aclose()
             self._reader_running = False
         elif event.message_finished:
-            msg = (b'' if isinstance(event, BytesMessage) else '') \
-                .join(self._message_parts)
+            base: Union[bytes, str] = b'' if isinstance(event, BytesMessage) else ''
+            # mypy doesn't realize we only use bytes to join bytes, etc.
+            msg = base.join(self._message_parts)  # type: ignore[arg-type]
             self._message_size = 0
             self._message_parts = []
             try:
@@ -1129,7 +1247,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 # and there's no useful cleanup that we can do here.
                 pass
 
-    async def _handle_ping_event(self, event):
+    async def _handle_ping_event(self, event: Ping) -> None:
         '''
         Handle a PingReceived event.
 
@@ -1141,7 +1259,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         logger.debug('%s ping %r', self, event.payload)
         await self._send(event.response())
 
-    async def _handle_pong_event(self, event):
+    async def _handle_pong_event(self, event: Pong) -> None:
         '''
         Handle a PongReceived event.
 
@@ -1157,22 +1275,26 @@ class WebSocketConnection(trio.abc.AsyncResource):
         '''
         payload = bytes(event.payload)
         try:
-            event = self._pings[payload]
+            event_ = self._pings[payload]
         except KeyError:
             # We received a pong that doesn't match any in-flight pongs. Nothing
             # we can do with it, so ignore it.
             return
         while self._pings:
-            key, event = self._pings.popitem(0)
+            key, event_ = self._pings.popitem(False)
             skipped = ' [skipped] ' if payload != key else ' '
             logger.debug('%s pong%s%r', self, skipped, key)
-            event.set()
+            event_.set()
             if payload == key:
                 break
 
-    async def _reader_task(self):
+    async def _reader_task(self) -> None:
         ''' A background task that reads network data and generates events. '''
-        handlers = {
+        handlers: typing.Dict[
+            typing.Type[wsproto.events.Event],
+            # callables are contravariant, so cannot say it takes events.Event
+            typing.Callable[[typing.Any], typing.Awaitable[None]]
+        ] = {
             AcceptConnection: self._handle_accept_connection_event,
             BytesMessage: self._handle_message_event,
             CloseConnection: self._handle_close_connection_event,
@@ -1233,7 +1355,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         logger.debug('%s reader task finished', self)
 
-    async def _send(self, event):
+    async def _send(self, event: wsproto.events.Event) -> None:
         '''
         Send an to the remote WebSocket.
 
@@ -1250,12 +1372,18 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 await self._stream.send_all(data)
             except (trio.BrokenResourceError, trio.ClosedResourceError):
                 await self._abort_web_socket()
-                raise ConnectionClosed(self._close_reason) from None
+                # TODO: is self._close_reason guaranteed to be created?
+                raise ConnectionClosed(self._close_reason) from None  # type: ignore[arg-type]
 
 
 class Endpoint:
     ''' Represents a connection endpoint. '''
-    def __init__(self, address, port, is_ssl):
+    def __init__(
+            self,
+            address: object,
+            port: int,
+            is_ssl: bool
+    ) -> None:
         #: IP address :class:`ipaddress.ip_address`
         self.address = ip_address(address)
         #: TCP port
@@ -1264,7 +1392,7 @@ class Endpoint:
         self.is_ssl = is_ssl
 
     @property
-    def url(self):
+    def url(self) -> str:
         ''' Return a URL representation of a TCP endpoint, e.g.
         ``ws://127.0.0.1:80``. '''
         scheme = 'wss' if self.is_ssl else 'ws'
@@ -1277,7 +1405,7 @@ class Endpoint:
             return f'{scheme}://{self.address}{port_str}'
         return f'{scheme}://[{self.address}]{port_str}'
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         ''' Return endpoint info as string. '''
         return f'Endpoint(address="{self.address}", port={self.port}, is_ssl={self.is_ssl})'
 
@@ -1291,10 +1419,17 @@ class WebSocketServer:
     instance and starts some background tasks,
     '''
 
-    def __init__(self, handler, listeners, *, handler_nursery=None,
-        message_queue_size=MESSAGE_QUEUE_SIZE,
-        max_message_size=MAX_MESSAGE_SIZE, connect_timeout=CONN_TIMEOUT,
-        disconnect_timeout=CONN_TIMEOUT):
+    def __init__(
+            self,
+            handler: typing.Callable[[WebSocketRequest], typing.Awaitable[object]],
+            listeners: typing.Sequence[trio.abc.Listener[typing.Any]],
+            *,
+            handler_nursery: Optional[trio.Nursery] = None,
+            message_queue_size: int = MESSAGE_QUEUE_SIZE,
+            max_message_size: int = MAX_MESSAGE_SIZE,
+            connect_timeout: float = CONN_TIMEOUT,
+            disconnect_timeout: float = CONN_TIMEOUT
+    ) -> None:
         '''
         Constructor.
 
@@ -1326,7 +1461,7 @@ class WebSocketServer:
         self._disconnect_timeout = disconnect_timeout
 
     @property
-    def port(self):
+    def port(self) -> int:
         """Returns the requested or kernel-assigned port number.
 
         In the case of kernel-assigned port (requested with port=0 in the
@@ -1347,7 +1482,7 @@ class WebSocketServer:
             raise RuntimeError(f'This socket does not have a port: {repr(listener)}') from None
 
     @property
-    def listeners(self):
+    def listeners(self) -> typing.List[Union[str, Endpoint]]:
         '''
         Return a list of listener metadata. Each TCP listener is represented as
         an ``Endpoint`` instance. Other listener types are represented by their
@@ -1362,7 +1497,13 @@ class WebSocketServer:
             if isinstance(listener, trio.SocketListener):
                 socket = listener.socket
             elif isinstance(listener, trio.SSLListener):
-                socket = listener.transport_listener.socket
+                listener = listener.transport_listener
+
+                if isinstance(listener, trio.SocketListener):
+                    socket = listener.socket
+                else:
+                    socket = None
+
                 is_ssl = True
             if socket:
                 sockname = socket.getsockname()
@@ -1371,7 +1512,11 @@ class WebSocketServer:
                 listeners.append(repr(listener))
         return listeners
 
-    async def run(self, *, task_status=trio.TASK_STATUS_IGNORED):
+    async def run(
+            self,
+            *,
+            task_status: 'TaskStatus[WebSocketServer]' = trio.TASK_STATUS_IGNORED
+    ) -> typing.NoReturn:
         '''
         Start serving incoming connections requests.
 
@@ -1392,7 +1537,7 @@ class WebSocketServer:
             task_status.started(self)
             await trio.sleep_forever()
 
-    async def _handle_connection(self, stream):
+    async def _handle_connection(self, stream: trio.abc.Stream) -> None:
         '''
         Handle an incoming connection by spawning a connection background task
         and a handler task inside a new nursery.

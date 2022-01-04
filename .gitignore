@@ -6,3 +6,4 @@ dist
 examples/fake.*
 trio_websocket.egg-info
 venv
+.mypy_cache/

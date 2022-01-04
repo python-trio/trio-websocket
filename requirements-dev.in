@@ -11,3 +11,5 @@ sphinx_rtd_theme
 trio>=0.14.0
 trustme
 twine
+mypy
+trio-typing

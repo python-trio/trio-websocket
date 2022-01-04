@@ -34,6 +34,7 @@ setup(
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
+        'Typing :: Typed',
     ],
     python_requires=">=3.6",
     keywords='websocket client server trio',
@@ -43,6 +44,8 @@ setup(
         'trio>=0.11',
         'wsproto>=0.14',
     ],
+    package_data={'trio_websocket': ['py.typed']},
+    zip_safe=False,
     project_urls={
         'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',
         'Source': 'https://github.com/HyperionGray/trio-websocket',
