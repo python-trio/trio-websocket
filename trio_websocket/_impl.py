@@ -799,7 +799,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         if ws_connection.client:
             self._initial_request = Request(host=host, target=path,
                 subprotocols=client_subprotocols,
-                extra_headers=client_extra_headers or [])  # type: ignore[call-arg]
+                extra_headers=client_extra_headers or [])
         else:
             self._initial_request = None
         self._path = path

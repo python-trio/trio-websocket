@@ -15,7 +15,7 @@ test:
 
 lint:
 	$(PYTHON) -m pylint trio_websocket/ tests/ autobahn/ examples/
-	$(PYTHON) -m mypy trio_websocket/
+	! $(PYTHON) --version | grep -q 'PyPy' && $(PYTHON) -m mypy trio_websocket/
 
 publish:
 	rm -fr build dist .egg trio_websocket.egg-info
