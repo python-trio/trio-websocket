@@ -37,7 +37,6 @@ import attr
 import pytest
 import trio
 import trustme
-from async_generator import async_generator, yield_
 from trio.testing import memory_stream_pair
 from wsproto.events import CloseConnection
 
@@ -78,24 +77,22 @@ TIMEOUT_TEST_MAX_DURATION = 3
 
 
 @pytest.fixture
-@async_generator
 async def echo_server(nursery):
     ''' A server that reads one message, sends back the same message,
     then closes the connection. '''
     serve_fn = partial(serve_websocket, echo_request_handler, HOST, 0,
         ssl_context=None)
     server = await nursery.start(serve_fn)
-    await yield_(server)
+    yield server
 
 
 @pytest.fixture
-@async_generator
 async def echo_conn(echo_server):
     ''' Return a client connection instance that is connected to an echo
     server. '''
     async with open_websocket(HOST, echo_server.port, RESOURCE,
             use_ssl=False) as conn:
-        await yield_(conn)
+        yield conn
 
 
 async def echo_request_handler(request):
