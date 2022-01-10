@@ -4,6 +4,11 @@ dist: focal
 git:
   depth: 1
 
+env:
+  global:
+    - REQUIREMENTS=requirements-dev.txt
+    - LINT="make lint"
+
 jobs:
   include:
     - python: 3.6
@@ -11,18 +16,19 @@ jobs:
     - python: 3.8
     - python: 3.9
     - python: pypy3
+      env: REQUIREMENTS=requirements-min.txt LINT=""
     - name: "latest deps"
       python: 3.9
       env: UPGRADE="pip install --upgrade trio wsproto"
 
 install:
-  - pip install -r requirements-dev.txt
+  - pip install -r $REQUIREMENTS
   - $UPGRADE
   - pip install -e .
 
 script:
   - make test
-  - make lint
+  - $LINT
 
 after_success:
   - make coverage
