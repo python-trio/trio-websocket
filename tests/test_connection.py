@@ -119,8 +119,7 @@ class fail_after:
             with trio.move_on_after(self._seconds) as cancel_scope:
                 await fn(*args, **kwargs)
             if cancel_scope.cancelled_caught:
-                pytest.fail('Test runtime exceeded the maximum {} seconds'
-                    .format(self._seconds))
+                pytest.fail(f'Test runtime exceeded the maximum {self._seconds} seconds')
         return wrapper
 
 
@@ -281,7 +280,7 @@ async def test_client_open(echo_server):
     (RESOURCE + '?foo=bar', RESOURCE + '?foo=bar')
 ])
 async def test_client_open_url(path, expected_path, echo_server):
-    url = 'ws://{}:{}{}'.format(HOST, echo_server.port, path)
+    url = f'ws://{HOST}:{echo_server.port}{path}'
     async with open_websocket_url(url) as conn:
         assert conn.path == expected_path
 
@@ -294,7 +293,7 @@ async def test_client_open_invalid_url(echo_server):
 
 async def test_ascii_encoded_path_is_ok(echo_server):
     path = '%D7%90%D7%91%D7%90?%D7%90%D7%9E%D7%90'
-    url = 'ws://{}:{}{}/{}'.format(HOST, echo_server.port, RESOURCE, path)
+    url = f'ws://{HOST}:{echo_server.port}{RESOURCE}/{path}'
     async with open_websocket_url(url) as conn:
         assert conn.path == RESOURCE + '/' + path
 
@@ -303,7 +302,7 @@ async def test_ascii_encoded_path_is_ok(echo_server):
 def test_client_open_url_options(open_websocket_mock):
     """open_websocket_url() must pass its options on to open_websocket()"""
     port = 1234
-    url = 'ws://{}:{}{}'.format(HOST, port, RESOURCE)
+    url = f'ws://{HOST}:{port}{RESOURCE}'
     options = {
         'subprotocols': ['chat'],
         'extra_headers': [(b'X-Test-Header', b'My test header')],
@@ -330,7 +329,7 @@ async def test_client_connect(echo_server, nursery):
 
 
 async def test_client_connect_url(echo_server, nursery):
-    url = 'ws://{}:{}{}'.format(HOST, echo_server.port, RESOURCE)
+    url = f'ws://{HOST}:{echo_server.port}{RESOURCE}'
     conn = await connect_websocket_url(nursery, url)
     assert not conn.closed
 

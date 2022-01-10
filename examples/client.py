@@ -71,9 +71,8 @@ async def handle_connection(ws, use_heartbeat):
             nursery.start_soon(get_commands, ws)
             nursery.start_soon(get_messages, ws)
     except ConnectionClosed as cc:
-        reason = '<no reason>' if cc.reason.reason is None else '"{}"'.format(
-            cc.reason.reason)
-        print('Closed: {}/{} {}'.format(cc.reason.code, cc.reason.name, reason))
+        reason = '<no reason>' if cc.reason.reason is None else f'"{cc.reason.reason}"'
+        print(f'Closed: {cc.reason.code}/{cc.reason.name} {reason}')
 
 
 async def heartbeat(ws, timeout, interval):
@@ -128,7 +127,7 @@ async def get_messages(ws):
     ''' In a loop: get a WebSocket message and print it out. '''
     while True:
         message = await ws.get_message()
-        print('message: {}'.format(message))
+        print(f'message: {message}')
 
 
 if __name__ == '__main__':

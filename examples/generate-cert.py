@@ -13,10 +13,10 @@ def main():
     print('Creating self-signed certificate for localhost/127.0.0.1:')
     ca_cert = trustme.CA()
     ca_cert.cert_pem.write_to_path(ca_path)
-    print (' * CA certificate: {}'.format(ca_path))
+    print(f' * CA certificate: {ca_path}')
     server_cert = ca_cert.issue_server_cert('localhost', '127.0.0.1')
     server_cert.private_key_and_cert_chain_pem.write_to_path(server_path)
-    print (' * Server certificate: {}'.format(server_path))
+    print(f' * Server certificate: {server_path}')
     print('Done')
 
 

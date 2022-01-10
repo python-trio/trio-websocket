@@ -24,7 +24,7 @@ async def get_case_count(url):
 
 
 async def run_case(url, case):
-    url = url + '/runCase?case={}&agent={}'.format(case, AGENT)
+    url = f'{url}/runCase?case={case}&agent={AGENT}'
     try:
         async with open_websocket_url(url, max_message_size=MAX_MESSAGE_SIZE) as conn:
             while True:
@@ -35,7 +35,7 @@ async def run_case(url, case):
 
 
 async def update_reports(url):
-    url = url + '/updateReports?agent={}'.format(AGENT)
+    url = f'{url}/updateReports?agent={AGENT}'
     async with open_websocket_url(url) as conn:
         # This command runs as soon as we connect to it, so we don't need to
         # send any messages.

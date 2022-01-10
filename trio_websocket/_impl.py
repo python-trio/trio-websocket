@@ -8,6 +8,7 @@ import random
 import ssl
 import struct
 import urllib.parse
+from typing import List
 
 from async_generator import asynccontextmanager
 import trio
@@ -174,9 +175,10 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     if port in (80, 443):
         host_header = host
     else:
-        host_header = '{}:{}'.format(host, port)
-    wsproto = WSConnection(ConnectionType.CLIENT)
-    connection = WebSocketConnection(stream, wsproto, host=host_header,
+        host_header = f'{host}:{port}'
+    connection = WebSocketConnection(stream,
+        WSConnection(ConnectionType.CLIENT),
+        host=host_header,
         path=resource,
         client_subprotocols=subprotocols, client_extra_headers=extra_headers,
         message_queue_size=message_queue_size,
@@ -328,8 +330,9 @@ async def wrap_client_stream(nursery, stream, host, resource, *,
         then the connection is closed with code 1009 (Message Too Big).
     :rtype: WebSocketConnection
     '''
-    wsproto = WSConnection(ConnectionType.CLIENT)
-    connection = WebSocketConnection(stream, wsproto, host=host, path=resource,
+    connection = WebSocketConnection(stream,
+        WSConnection(ConnectionType.CLIENT),
+        host=host, path=resource,
         client_subprotocols=subprotocols, client_extra_headers=extra_headers,
         message_queue_size=message_queue_size,
         max_message_size=max_message_size)
@@ -356,8 +359,8 @@ async def wrap_server_stream(nursery, stream,
     :type stream: trio.abc.Stream
     :rtype: WebSocketRequest
     '''
-    wsproto = WSConnection(ConnectionType.SERVER)
-    connection = WebSocketConnection(stream, wsproto,
+    connection = WebSocketConnection(stream,
+        WSConnection(ConnectionType.SERVER),
         message_queue_size=message_queue_size,
         max_message_size=max_message_size)
     nursery.start_soon(connection._reader_task)
@@ -446,7 +449,7 @@ class ConnectionClosed(Exception):
 
     def __repr__(self):
         ''' Return representation. '''
-        return '{}<{}>'.format(self.__class__.__name__, self.reason)
+        return f'{self.__class__.__name__}<{self.reason}>'
 
 
 class ConnectionRejected(HandshakeError):
@@ -471,8 +474,7 @@ class ConnectionRejected(HandshakeError):
 
     def __repr__(self):
         ''' Return representation. '''
-        return '{}<status_code={}>'.format(self.__class__.__name__,
-            self.status_code)
+        return f'{self.__class__.__name__}<status_code={self.status_code}>'
 
 
 class CloseReason:
@@ -515,8 +517,8 @@ class CloseReason:
 
     def __repr__(self):
         ''' Show close code, name, and reason. '''
-        return '{}<code={}, name={}, reason={}>'.format(self.__class__.__name__,
-            self.code, self.name, self.reason)
+        return f'{self.__class__.__name__}' \
+               f'<code={self.code}, name={self.name}, reason={self.reason}>'
 
 
 class Future:
@@ -619,7 +621,7 @@ class WebSocketRequest:
         :rtype: WebSocketConnection
         '''
         if extra_headers is None:
-            extra_headers = list()
+            extra_headers = []
         await self._connection._accept(self._event, subprotocol, extra_headers)
         return self._connection
 
@@ -651,14 +653,12 @@ def _get_stream_endpoint(stream, *, local):
         represented as an endpoint.
     :rtype: Endpoint or str
     '''
+    socket, is_ssl = None, False
     if isinstance(stream, trio.SocketStream):
         socket = stream.socket
-        is_ssl = False
     elif isinstance(stream, trio.SSLStream):
         socket = stream.transport_stream.socket
         is_ssl = True
-    else:
-        socket = None
     if socket:
         addr, port, *_ = socket.getsockname() if local else socket.getpeername()
         endpoint = Endpoint(addr, port, is_ssl)
@@ -672,7 +672,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, wsproto, *, host=None, path=None,
+    def __init__(self, stream, ws_connection, *, host=None, path=None,
         client_subprotocols=None, client_extra_headers=None,
         message_queue_size=MESSAGE_QUEUE_SIZE,
         max_message_size=MAX_MESSAGE_SIZE):
@@ -688,7 +688,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         for you.
 
         :param SocketStream stream:
-        :type wsproto: wsproto.WSConnection
+        :param ws_connection wsproto.WSConnection:
         :param str host: The hostname to send in the HTTP request headers. Only
             used for client connections.
         :param str path: The URL path for this connection.
@@ -706,12 +706,12 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._id = next(self.__class__.CONNECTION_ID)
         self._stream = stream
         self._stream_lock = trio.StrictFIFOLock()
-        self._wsproto = wsproto
+        self._wsproto = ws_connection
         self._message_size = 0
         self._message_parts = []  # type: List[bytes|str]
         self._max_message_size = max_message_size
         self._reader_running = True
-        if wsproto.client:
+        if ws_connection.client:
             self._initial_request = Request(host=host, target=path,
                 subprotocols=client_subprotocols,
                 extra_headers=client_extra_headers or [])
@@ -895,8 +895,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
         if payload in self._pings:
-            raise ValueError('Payload value {} is already in flight.'.
-                format(payload))
+            raise ValueError(f'Payload value {payload} is already in flight.')
         if payload is None:
             payload = struct.pack('!I', random.getrandbits(32))
         event = trio.Event()
@@ -938,7 +937,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
     def __str__(self):
         ''' Connection ID and type. '''
         type_ = 'client' if self.is_client else 'server'
-        return '{}-{}'.format(type_, self._id)
+        return f'{type_}-{self._id}'
 
     async def _accept(self, request, subprotocol, extra_headers):
         '''
@@ -1110,8 +1109,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._message_size += len(event.data)
         self._message_parts.append(event.data)
         if self._message_size > self._max_message_size:
-            err = 'Exceeded maximum message size: {} bytes'.format(
-                self._max_message_size)
+            err = f'Exceeded maximum message size: {self._max_message_size} bytes'
             self._message_size = 0
             self._message_parts = []
             self._close_reason = CloseReason(1009, err)
@@ -1276,13 +1274,12 @@ class Endpoint:
         else:
             port_str = ':' + str(self.port)
         if self.address.version == 4:
-            return '{}://{}{}'.format(scheme, self.address, port_str)
-        return '{}://[{}]{}'.format(scheme, self.address, port_str)
+            return f'{scheme}://{self.address}{port_str}'
+        return f'{scheme}://[{self.address}]{port_str}'
 
     def __repr__(self):
         ''' Return endpoint info as string. '''
-        return 'Endpoint(address="{}", port={}, is_ssl={})'.format(self.address,
-            self.port, self.is_ssl)
+        return f'Endpoint(address="{self.address}", port={self.port}, is_ssl={self.is_ssl})'
 
 
 class WebSocketServer:
@@ -1343,12 +1340,11 @@ class WebSocketServer:
         if len(self._listeners) > 1:
             raise RuntimeError('Cannot get port because this server has'
                 ' more than 1 listeners.')
+        listener = self.listeners[0]
         try:
-            listener = self.listeners[0]
             return listener.port
         except AttributeError:
-            raise RuntimeError('This socket does not have a port: {!r}'
-                .format(listener)) from None
+            raise RuntimeError(f'This socket does not have a port: {repr(listener)}') from None
 
     @property
     def listeners(self):
@@ -1360,16 +1356,14 @@ class WebSocketServer:
         :returns: Listeners
         :rtype list[Endpoint or str]:
         '''
-        listeners = list()
+        listeners = []
         for listener in self._listeners:
+            socket, is_ssl = None, False
             if isinstance(listener, trio.SocketListener):
                 socket = listener.socket
-                is_ssl = False
             elif isinstance(listener, trio.SSLListener):
                 socket = listener.transport_listener.socket
                 is_ssl = True
-            else:
-                socket = None
             if socket:
                 sockname = socket.getsockname()
                 listeners.append(Endpoint(sockname[0], sockname[1], is_ssl))
@@ -1407,8 +1401,8 @@ class WebSocketServer:
         :type stream: trio.abc.Stream
         '''
         async with trio.open_nursery() as nursery:
-            wsproto = WSConnection(ConnectionType.SERVER)
-            connection = WebSocketConnection(stream, wsproto,
+            connection = WebSocketConnection(stream,
+                WSConnection(ConnectionType.SERVER),
                 message_queue_size=self._message_queue_size,
                 max_message_size=self._max_message_size)
             nursery.start_soon(connection._reader_task)
