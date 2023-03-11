@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - "dependabot/**"
+  pull_request:
+
+jobs:
+  build_and_test_pinned:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.7', '3.8', '3.9', '3.10']  # 'pypy-3.7'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'requirements-dev.txt'
+      - run: pip install . -r requirements-dev.txt
+      - run: make test
+      - run: make lint
+
+  build_and_test_latest:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.11']
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install . -r requirements-dev.in
+      - run: make test

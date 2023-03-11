@@ -15,9 +15,7 @@ available here](https://trio-websocket.readthedocs.io).
 
 [![PyPI](https://img.shields.io/pypi/v/trio-websocket.svg?style=flat-square)](https://pypi.org/project/trio-websocket/)
 ![Python Versions](https://img.shields.io/pypi/pyversions/trio-websocket.svg?style=flat-square)
-![MIT License](https://img.shields.io/github/license/HyperionGray/trio-websocket.svg?style=flat-square)
-[![Build Status](https://img.shields.io/travis/com/HyperionGray/trio-websocket.svg?style=flat-square&branch=master)](https://travis-ci.com/HyperionGray/trio-websocket)
-[![Coverage](https://img.shields.io/coveralls/github/HyperionGray/trio-websocket.svg?style=flat-square)](https://coveralls.io/github/HyperionGray/trio-websocket?branch=master)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/HyperionGray/trio-websocket/ci.yml)](https://github.com/HyperionGray/trio-websocket/actions/workflows/ci.yml)
 [![Read the Docs](https://img.shields.io/readthedocs/trio-websocket.svg)](https://trio-websocket.readthedocs.io)
 
 ## Alternatives

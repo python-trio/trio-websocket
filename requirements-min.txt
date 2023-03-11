@@ -29,16 +29,11 @@ contextvars==2.4
     #   trio
 coverage[toml]==6.2
     # via
-    #   coveralls
     #   pytest-cov
-coveralls==3.3.1
-    # via -r requirements-dev.in
 cryptography==3.3.2
     # via trustme
 dataclasses==0.8
     # via wsproto
-docopt==0.6.2
-    # via coveralls
 h11==0.12.0
     # via wsproto
 idna==3.3
@@ -83,8 +78,6 @@ pytest-cov==3.0.0
     # via -r requirements-dev.in
 pytest-trio==0.7.0
     # via -r requirements-dev.in
-requests==2.27.1
-    # via coveralls
 sniffio==1.2.0
     # via trio
 sortedcontainers==2.4.0

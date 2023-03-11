@@ -4,9 +4,6 @@ PYTHON = python
 # product:
 .PHONY: docs
 
-coverage:
-	$(PYTHON) -m coveralls -v
-
 docs:
 	$(MAKE) -C docs html
 
