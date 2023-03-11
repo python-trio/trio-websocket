@@ -127,7 +127,7 @@ class fail_after:
 class MemoryListener(trio.abc.Listener):
     closed = attr.ib(default=False)
     accepted_streams = attr.ib(factory=list)
-    queued_streams = attr.ib(factory=(lambda: trio.open_memory_channel(1)))
+    queued_streams = attr.ib(factory=lambda: trio.open_memory_channel(1))
     accept_hook = attr.ib(default=None)
 
     async def connect(self):
@@ -423,10 +423,10 @@ async def test_handshake_exception_before_accept():
     handshake causes the task to hang. The proper behavior is to raise an
     exception to the nursery as soon as possible. '''
     async def handler(request):
-        raise Exception()
+        raise ValueError()
 
-    with pytest.raises(Exception):
-        with trio.open_nursery() as nursery:
+    with pytest.raises(ValueError):
+        async with trio.open_nursery() as nursery:
             server = await nursery.start(serve_websocket, handler, HOST, 0,
                 None)
             async with open_websocket(HOST, server.port, RESOURCE,

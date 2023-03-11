@@ -62,7 +62,7 @@ class _preserve_current_exception:
         def remove_cancels(exc):
             return None if isinstance(exc, trio.Cancelled) else exc
 
-        return trio.MultiError.filter(remove_cancels, value) is None
+        return trio.MultiError.filter(remove_cancels, value) is None  # pylint: disable=no-member
 
 
 @asynccontextmanager
@@ -1027,9 +1027,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :rtype: WebSocketRequest
         '''
         if not self.is_server:
-            raise Exception('This method is only valid for server connections.')
+            raise RuntimeError('This method is only valid for server connections.')
         if self._connection_proposal is None:
-            raise Exception('No proposal available. Did you call this method'
+            raise RuntimeError('No proposal available. Did you call this method'
                 ' multiple times or at the wrong time?')
         proposal = await self._connection_proposal.wait_value()
         self._connection_proposal = None
