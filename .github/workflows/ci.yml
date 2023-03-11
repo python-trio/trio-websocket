@@ -12,7 +12,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.7', '3.8', '3.9', '3.10']  # 'pypy-3.7'
+        python-version: ['3.7', '3.8', '3.9', '3.10']
+
     steps:
       - uses: actions/checkout@v3
       - name: Setup Python
@@ -24,6 +25,24 @@ jobs:
       - run: pip install . -r requirements-dev.txt
       - run: make test
       - run: make lint
+
+  build_and_test_pypy:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['pypy-3.7']
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'requirements-min.txt'
+      - run: pip install . -r requirements-min.txt
+      - run: make test
 
   build_and_test_latest:
     runs-on: ${{ matrix.os }}
