@@ -1,0 +1,5 @@
+pylint
+sphinx
+sphinxcontrib-trio
+sphinx_rtd_theme
+twine

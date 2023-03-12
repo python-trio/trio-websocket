@@ -28,6 +28,9 @@ publish:
 # upgrade specific deps:
 #   make -W requirements-dev.{in,txt} PIP_COMPILE_ARGS="-P foo"
 ifneq ($(PIP_COMPILE_ARGS),)
-requirements-dev.txt: setup.py requirements-dev.in
+requirements-dev.txt: setup.py requirements-dev.in requirements-extras.in
+	pip-compile -q $(PIP_COMPILE_ARGS) --output-file $@ $^
+
+requirements-min.txt: setup.py requirements-dev.in
 	pip-compile -q $(PIP_COMPILE_ARGS) --output-file $@ $^
 endif
