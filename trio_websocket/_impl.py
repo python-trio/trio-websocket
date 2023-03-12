@@ -1,5 +1,6 @@
 import sys
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 from functools import partial
 from ipaddress import ip_address
 import itertools
@@ -10,7 +11,6 @@ import struct
 import urllib.parse
 from typing import List
 
-from async_generator import asynccontextmanager
 import trio
 import trio.abc
 from wsproto import ConnectionType, WSConnection

@@ -5,9 +5,7 @@
 #    pip-compile --output-file=requirements-min.txt requirements-dev.in setup.py
 #
 async-generator==1.10
-    # via
-    #   trio
-    #   trio-websocket (setup.py)
+    # via trio
 attrs==22.2.0
     # via
     #   -r requirements-dev.in
