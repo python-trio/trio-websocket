@@ -13,6 +13,7 @@ from typing import List
 
 import trio
 import trio.abc
+from exceptiongroup import BaseExceptionGroup
 from wsproto import ConnectionType, WSConnection
 from wsproto.connection import ConnectionState
 import wsproto.frame_protocol as wsframeproto
@@ -29,12 +30,17 @@ from wsproto.events import (
 )
 import wsproto.utilities
 
+_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.'))) < (0, 22, 0)
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
 MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
 RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
+
+
+def _ignore_cancel(exc):
+    return None if isinstance(exc, trio.Cancelled) else exc
 
 
 class _preserve_current_exception:
@@ -59,10 +65,13 @@ class _preserve_current_exception:
         if value is None or not self._armed:
             return False
 
-        def remove_cancels(exc):
-            return None if isinstance(exc, trio.Cancelled) else exc
-
-        return trio.MultiError.filter(remove_cancels, value) is None  # pylint: disable=no-member
+        if _TRIO_MULTI_ERROR:
+            filtered_exception = trio.MultiError.filter(_ignore_cancel, value)  # pylint: disable=no-member
+        elif isinstance(value, BaseExceptionGroup):
+            filtered_exception = value.subgroup(lambda exc: not isinstance(exc, trio.Cancelled))
+        else:
+            filtered_exception = _ignore_cancel(value)
+        return filtered_exception is None
 
 
 @asynccontextmanager
