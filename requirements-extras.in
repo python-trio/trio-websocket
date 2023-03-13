@@ -1,3 +1,4 @@
+# requirements for `make lint/docs/publish`
 pylint
 sphinx
 sphinxcontrib-trio

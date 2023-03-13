@@ -21,8 +21,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: 'requirements-dev.txt'
-      - run: pip install . -r requirements-dev.txt
+          cache-dependency-path: 'requirements-dev-full.txt'
+      - run: pip install . -r requirements-dev-full.txt
       - run: make test
       - run: make lint
 
@@ -40,8 +40,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: 'requirements-min.txt'
-      - run: pip install . -r requirements-min.txt && pip install trio==0.15.0 pytest-trio==0.7.0
+          cache-dependency-path: 'requirements-dev.txt'
+      - run: pip install . -r requirements-dev.txt && pip install trio==0.15.0 pytest-trio==0.7.0
       - run: make test
 
   build_and_test_pypy:
@@ -58,8 +58,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: 'requirements-min.txt'
-      - run: pip install . -r requirements-min.txt
+          cache-dependency-path: 'requirements-dev.txt'
+      - run: pip install . -r requirements-dev.txt
       - run: make test
 
   build_and_test_latest:
