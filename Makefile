@@ -15,7 +15,8 @@ lint:
 
 publish:
 	rm -fr build dist .egg trio_websocket.egg-info
-	$(PYTHON) setup.py sdist
+	$(PYTHON) -m build
+	twine check dist/*
 	twine upload dist/*
 
 # requirements-dev.txt will only be regenerated when PIP_COMPILE_ARGS is not
