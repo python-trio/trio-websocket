@@ -1,6 +1,6 @@
 # Release history
 
-## trio-websocket 0.10.0 (2023-03-1)
+## trio-websocket 0.10.0 (2023-03-13)
 ### Fixed
 - avoid MultiError warnings with trio >= 0.22
 ### Changed
