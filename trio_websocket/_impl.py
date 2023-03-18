@@ -932,7 +932,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param message: The message to send.
         :type message: str or bytes
-        :raises ConnectionClosed: if connection is already closed.
+        :raises ConnectionClosed: if connection is closed, or being closed
         '''
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
@@ -1096,10 +1096,13 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param wsproto.events.CloseConnection event:
         '''
-        if self._for_testing_peer_closed_connection:
-            self._for_testing_peer_closed_connection.set()
-            await trio.sleep(0)
         if self._wsproto.state == ConnectionState.REMOTE_CLOSING:
+            # Set _close_reason in advance, so that send_message() will raise
+            # ConnectionClosed during the close handshake.
+            self._close_reason = CloseReason(event.code, event.reason or None)
+            if self._for_testing_peer_closed_connection:
+                self._for_testing_peer_closed_connection.set()
+                await trio.sleep(0)
             await self._send(event.response())
         await self._close_web_socket(event.code, event.reason or None)
         self._close_handshake.set()
