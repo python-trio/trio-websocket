@@ -26,7 +26,7 @@ jobs:
       - run: make test
       - run: make lint
 
-  build_and_test_old_trio:
+  build_and_test_old_deps:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -41,7 +41,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           cache-dependency-path: 'requirements-dev.txt'
-      - run: pip install . -r requirements-dev.txt && pip install trio==0.15.0 pytest-trio==0.7.0
+      - run: |
+          pip install . -r requirements-dev.txt
+          pip install trio==0.15.0 pytest-trio==0.7.0  # trio with MultiError
+          pip install wsproto==0.14.0  # wsproto allowing message during REMOTE_CLOSING, etc.
       - run: make test
 
   build_and_test_pypy:
