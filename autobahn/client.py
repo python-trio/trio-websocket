@@ -51,13 +51,12 @@ async def update_reports(url):
 
 
 async def run_tests(args):
+    logger = logging.getLogger('trio-websocket')
     if args.debug_cases:
         # Don't fetch case count when debugging a subset of test cases. It adds
         # noise to the debug logging.
         case_count = None
         test_cases = args.debug_cases
-        # Automatically enable debug logging when running individual test cases.
-        logging.getLogger('trio-websocket').setLevel(logging.DEBUG)
     else:
         case_count = await get_case_count(args.url)
         test_cases = list(range(1, case_count + 1))
@@ -68,20 +67,19 @@ async def run_tests(args):
             logger.info("Running test case %s (%d of %d)", case_id, case, case_count)
         else:
             logger.info("Debugging test case %s (%d)", case_id, case)
+            logger.setLevel(logging.DEBUG)
         try:
             await run_case(args.url, case)
         except Exception:  # pylint: disable=broad-exception-caught
             logger.exception('  runtime exception during test case %s (%d)', case_id, case)
             exception_cases.append(case_id)
+        logger.setLevel(logging.INFO)
+    logger.info('Updating report')
+    await update_reports(args.url)
     if exception_cases:
         logger.error('Runtime exception in %d of %d test cases: %s',
                      len(exception_cases), len(test_cases), exception_cases)
         sys.exit(1)
-    if not args.debug_cases:
-        # Don't update report when debugging a single test case. It adds noise
-        # to the debug logging.
-        logger.info('Updating report')
-        await update_reports(args.url)
 
 
 def parse_args():
