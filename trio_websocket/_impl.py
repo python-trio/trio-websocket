@@ -1244,7 +1244,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     async def _send(self, event):
         '''
-        Send an to the remote WebSocket.
+        Send an event to the remote WebSocket.
 
         The reader task and one or more writers might try to send messages at
         the same time, so this method uses an internal lock to serialize
@@ -1311,8 +1311,8 @@ class WebSocketServer:
         multiple listeners that have _different port numbers!_ See the
         ``listeners`` property.
 
-        :param handler: the async function called with the corresponding
-            WebSocketConnection on each new connection.  The call will be made
+        :param handler: the async function called with a :class:`WebSocketRequest`
+            on each new connection.  The call will be made
             once the HTTP handshake completes, which notably implies that the
             connection's `path` property will be valid.
         :param listeners: The WebSocket will be served on each of the listeners.
