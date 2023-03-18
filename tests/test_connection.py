@@ -37,8 +37,10 @@ import attr
 import pytest
 import trio
 import trustme
+import wsproto
 from trio.testing import memory_stream_pair
 from wsproto.events import CloseConnection
+from wsproto.utilities import LocalProtocolError
 
 try:
     from trio.lowlevel import current_task  # pylint: disable=ungrouped-imports
@@ -63,6 +65,7 @@ from trio_websocket import (
     wrap_server_stream
 )
 
+WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
 HOST = '127.0.0.1'
 RESOURCE = '/resource'
@@ -904,7 +907,7 @@ async def test_max_message_size(nursery):
         assert client.closed.code == 1009
 
 
-async def test_close_race(nursery, autojump_clock):
+async def test_server_close_client_disconnect_race(nursery, autojump_clock):
     """server attempts close just as client disconnects (issue #96)"""
 
     async def handler(request: WebSocketRequest):
@@ -923,6 +926,40 @@ async def test_close_race(nursery, autojump_clock):
     await connection.get_message()
     await connection.aclose()
     await trio.sleep(.1)
+
+
+@pytest.mark.xfail(
+    reason='send_message() API oversight for closing-in-process case',
+    raises=None if WS_PROTO_VERSION < (1, 2, 0) else LocalProtocolError,
+    strict=True)
+async def test_remote_close_local_message_race(nursery, autojump_clock):
+    """as remote initiates close, local attempts message (issue #175)
+
+    This exposes multiple problems in the trio-websocket API and implementation:
+        * send_message() silently fails if a close is in progress.  This was
+            likely an oversight in the API, since send_message() raises `ConnectionClosed`
+            only in the already-closed case, yet `ConnectionClosed` is defined to cover
+            "in the process of closing".
+        * with wsproto >= 1.2.0, LocalProtocolError will be leaked
+    """
+
+    async def handler(request: WebSocketRequest):
+        ws = await request.accept()
+        await ws.get_message()
+        await ws.aclose()
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    client = await connect_websocket(nursery, HOST, server.port,
+                                     RESOURCE, use_ssl=False)
+    client._for_testing_peer_closed_connection = trio.Event()
+    await client.send_message('foo')
+    await client._for_testing_peer_closed_connection.wait()
+    with pytest.raises(ConnectionClosed):
+        await client.send_message('bar')  # wsproto < 1.2.0: silently ignored
+                                          # wsproto >= 1.2.0: raises LocalProtocolError
+                                          # desired: raises ConnectionClosed
 
 
 @fail_after(DEFAULT_TEST_MAX_DURATION)
