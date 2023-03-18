@@ -9,7 +9,7 @@ import random
 import ssl
 import struct
 import urllib.parse
-from typing import List
+from typing import List, Optional
 
 import trio
 import trio.abc
@@ -744,9 +744,10 @@ class WebSocketConnection(trio.abc.AsyncResource):
         # Set once a WebSocket closed handshake takes place, i.e after a close
         # frame has been sent and a close frame has been received.
         self._close_handshake = trio.Event()
-        # Set immediately upon receiving closed event from peer.  Used to
-        # test close race conditions between client and server.
-        self._for_testing_peer_closed_connection = trio.Event()
+        # When not None, set immediately upon receiving CloseConnection from peer,
+        # followed by sleep(0) for a context switch.  Used to test close race
+        # conditions between client and server.
+        self._for_testing_peer_closed_connection: Optional[trio.Event] = None
 
     @property
     def closed(self):
@@ -1095,8 +1096,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
         :param wsproto.events.CloseConnection event:
         '''
-        self._for_testing_peer_closed_connection.set()
-        await trio.sleep(0)
+        if self._for_testing_peer_closed_connection:
+            self._for_testing_peer_closed_connection.set()
+            await trio.sleep(0)
         if self._wsproto.state == ConnectionState.REMOTE_CLOSING:
             await self._send(event.response())
         await self._close_web_socket(event.code, event.reason or None)

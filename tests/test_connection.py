@@ -58,6 +58,7 @@ from trio_websocket import (
     open_websocket_url,
     serve_websocket,
     WebSocketServer,
+    WebSocketRequest,
     wrap_client_stream,
     wrap_server_stream
 )
@@ -906,8 +907,9 @@ async def test_max_message_size(nursery):
 async def test_close_race(nursery, autojump_clock):
     """server attempts close just as client disconnects (issue #96)"""
 
-    async def handler(request):
+    async def handler(request: WebSocketRequest):
         ws = await request.accept()
+        ws._for_testing_peer_closed_connection = trio.Event()
         await ws.send_message('foo')
         await ws._for_testing_peer_closed_connection.wait()
         # with bug, this would raise ConnectionClosed from websocket internal task
