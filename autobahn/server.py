@@ -12,8 +12,7 @@ import argparse
 import logging
 
 import trio
-from trio_websocket import serve_websocket, ConnectionClosed
-
+from trio_websocket import serve_websocket, ConnectionClosed, WebSocketRequest
 
 BIND_IP = '0.0.0.0'
 BIND_PORT = 9000
@@ -31,7 +30,7 @@ async def main():
                           max_message_size=MAX_MESSAGE_SIZE)
 
 
-async def handler(request):
+async def handler(request: WebSocketRequest):
     ''' Reverse incoming websocket messages and send them back. '''
     global connection_count  # pylint: disable=global-statement
     connection_count += 1
@@ -43,6 +42,8 @@ async def handler(request):
             await ws.send_message(message)
         except ConnectionClosed:
             break
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.exception('  runtime exception handling connection #%d', connection_count)
 
 
 def parse_args():

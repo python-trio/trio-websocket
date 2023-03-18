@@ -151,7 +151,7 @@ In the second terminal, you will run the Docker image::
           -p 9000:9000 \
           --name autobahn \
           crossbario/autobahn-testsuite \
-          /usr/local/bin/wstest --mode fuzzingclient --spec /config/fuzzingclient.json
+          wstest --mode fuzzingclient --spec /config/fuzzingclient.json
 
 If a test fails, ``server.py`` does not support the same ``debug_cases``
 argument as ``client.py``, but you can modify `fuzzingclient.json` to specify a
