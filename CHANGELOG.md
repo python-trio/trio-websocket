@@ -1,12 +1,20 @@
 # Release history
 
+## trio-websocket 0.10.2 (2023-03-19)
+### Fixed
+- fixed a race condition where, just after a local-initiated close, the
+  `closed` attribute would be `None`, and `send_message()` would be silently
+  ignored (wsproto < 0.2.0) or leak a `LocalProtocolError` (wsproto >= 0.2.0)
+  rather than raise `ConnectionClosed`
+  ([#158](https://github.com/HyperionGray/trio-websocket/issues/158))
+
 ## trio-websocket 0.10.1 (2023-03-18)
 ### Fixed
 - `send_message()` is changed to raise `ConnectionClosed` when a close
   handshake is in progress.  Previously, it would silently ignore
   the call, which was an oversight, given that `ConnectionClosed` is
   defined to cover connections "closed or in the process of closing".
-  Noteably, this fixes `send_message()` leaking a wsproto `LocalProtocolError`
+  Notably, this fixes `send_message()` leaking a wsproto `LocalProtocolError`
   with wsproto >= 1.2.0.
   ([#175](https://github.com/HyperionGray/trio-websocket/issues/175))
 
