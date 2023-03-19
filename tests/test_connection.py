@@ -791,7 +791,7 @@ async def test_server_handler_exit(nursery, autojump_clock):
     server = await nursery.start(
         partial(serve_websocket, handler, HOST, 0, ssl_context=None))
 
-    # connection should close when server handler exists
+    # connection should close when server handler exits
     with trio.fail_after(2):
         async with open_websocket(
                 HOST, server.port, '/', use_ssl=False) as connection:
@@ -953,6 +953,35 @@ async def test_remote_close_local_message_race(nursery, autojump_clock):
     await client._for_testing_peer_closed_connection.wait()
     with pytest.raises(ConnectionClosed):
         await client.send_message('bar')
+
+
+async def test_message_after_local_close_race(nursery):
+    """test message send during local-initiated close handshake (issue #158)"""
+
+    async def handler(request: WebSocketRequest):
+        await request.accept()
+        await trio.sleep_forever()
+
+    server = await nursery.start(
+        partial(serve_websocket, handler, HOST, 0, ssl_context=None))
+
+    client = await connect_websocket(nursery, HOST, server.port,
+                                     RESOURCE, use_ssl=False)
+    orig_send = client._send
+    close_sent = trio.Event()
+
+    async def _send_wrapper(event):
+        if isinstance(event, CloseConnection):
+            close_sent.set()
+        return await orig_send(event)
+
+    client._send = _send_wrapper
+    assert not client.closed
+    nursery.start_soon(client.aclose)
+    await close_sent.wait()
+    assert client.closed
+    with pytest.raises(ConnectionClosed):
+        await client.send_message('hello')
 
 
 @fail_after(DEFAULT_TEST_MAX_DURATION)
