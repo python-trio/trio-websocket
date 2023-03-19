@@ -20,7 +20,7 @@ available here](https://trio-websocket.readthedocs.io).
 
 ## Alternatives
 
-If you happen to only need a server, using Quart via the [quart-trio](https://gitlab.com/pgjones/quart-trio/)
+If you happen to only need a server, using Quart via the [quart-trio](https://github.com/pgjones/quart-trio)
 extension may suffice.  While trio-websocket is more flexible, Quart covers
 both HTTP and WebSocket within a single framework, and serving both from the
 same port is straightforward.  There has yet to be a performance comparison.

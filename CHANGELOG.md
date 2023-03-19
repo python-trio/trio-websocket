@@ -1,7 +1,7 @@
 # Release history
 
 ## trio-websocket 0.10.1 (2023-03-18)
-### Changed
+### Fixed
 - `send_message()` is changed to raise `ConnectionClosed` when a close
   handshake is in progress.  Previously, it would silently ignore
   the call, which was an oversight, given that `ConnectionClosed` is
