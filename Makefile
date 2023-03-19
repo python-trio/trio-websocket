@@ -15,6 +15,7 @@ lint:
 
 publish:
 	rm -fr build dist .egg trio_websocket.egg-info
+	! grep -q dev trio_websocket/_version.py
 	$(PYTHON) -m build
 	twine check dist/*
 	twine upload dist/*
