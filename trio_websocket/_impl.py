@@ -711,6 +711,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
             ``len()``. If a message is received that is larger than this size,
             then the connection is closed with code 1009 (Message Too Big).
         '''
+        # NOTE: The implementation uses _close_reason for more than an advisory
+        #   purpose.  It's critical internal state, indicating when the
+        #   connection is closed or closing.
         self._close_reason: Optional[CloseReason] = None
         self._id = next(self.__class__.CONNECTION_ID)
         self._stream = stream
@@ -751,8 +754,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
     @property
     def closed(self):
         '''
-        (Read-only) The reason why the connection was closed, or ``None`` if the
-        connection is still open.
+        (Read-only) The reason why the connection was or is being closed,
+        else ``None``.
 
         :rtype: Optional[CloseReason]
         '''
