@@ -9,7 +9,7 @@ import random
 import ssl
 import struct
 import urllib.parse
-from typing import List
+from typing import List, Optional, Union
 
 import trio
 import trio.abc
@@ -711,26 +711,26 @@ class WebSocketConnection(trio.abc.AsyncResource):
             ``len()``. If a message is received that is larger than this size,
             then the connection is closed with code 1009 (Message Too Big).
         '''
-        self._close_reason = None
+        self._close_reason: Optional[CloseReason] = None
         self._id = next(self.__class__.CONNECTION_ID)
         self._stream = stream
         self._stream_lock = trio.StrictFIFOLock()
         self._wsproto = ws_connection
         self._message_size = 0
-        self._message_parts = []  # type: List[bytes|str]
+        self._message_parts: List[Union[bytes, str]] = []
         self._max_message_size = max_message_size
         self._reader_running = True
         if ws_connection.client:
-            self._initial_request = Request(host=host, target=path,
+            self._initial_request: Optional[Request] = Request(host=host, target=path,
                 subprotocols=client_subprotocols,
                 extra_headers=client_extra_headers or [])
         else:
             self._initial_request = None
         self._path = path
-        self._subprotocol = None
-        self._handshake_headers = None
-        self._reject_status = None
-        self._reject_headers = None
+        self._subprotocol: Optional[str] = None
+        self._handshake_headers = tuple()
+        self._reject_status = 0
+        self._reject_headers = tuple()
         self._reject_body = b''
         self._send_channel, self._recv_channel = trio.open_memory_channel(
             message_queue_size)
@@ -754,7 +754,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         (Read-only) The reason why the connection was closed, or ``None`` if the
         connection is still open.
 
-        :rtype: CloseReason
+        :rtype: Optional[CloseReason]
         '''
         return self._close_reason
 
