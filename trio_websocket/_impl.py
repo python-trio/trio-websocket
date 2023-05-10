@@ -67,7 +67,7 @@ class _preserve_current_exception:
             return False
 
         if _TRIO_MULTI_ERROR:
-            filtered_exception = trio.MultiError.filter(
+            filtered_exception = trio.MultiError.filter(  # pylint: disable=no-member
                 _ignore_cancel, value
             )  # pylint: disable=no-member
         elif isinstance(value, BaseExceptionGroup):
