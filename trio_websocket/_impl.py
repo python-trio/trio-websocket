@@ -1498,7 +1498,7 @@ class WebSocketServer:
         """
         if len(self._listeners) > 1:
             raise RuntimeError(
-                "Cannot get port because this server has" " more than 1 listeners."
+                "Cannot get port because this server has more than 1 listeners."
             )
         listener = self.listeners[0]
         try:
