@@ -30,7 +30,7 @@ from wsproto.events import (
 )
 import wsproto.utilities
 
-_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.'))) < (0, 22, 0)
+_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
