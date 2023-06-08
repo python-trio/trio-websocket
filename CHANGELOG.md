@@ -1,5 +1,9 @@
 # Release history
 
+## trio-websocket 0.10.3 (2023-06-08)
+### Fixed
+- fixed exception when installed trio package version has a suffix like `+dev`
+
 ## trio-websocket 0.10.2 (2023-03-19)
 ### Fixed
 - fixed a race condition where, just after a local-initiated close, the
