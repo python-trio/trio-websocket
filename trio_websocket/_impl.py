@@ -13,7 +13,6 @@ from typing import List, Optional, Union
 
 import trio
 import trio.abc
-from exceptiongroup import BaseExceptionGroup
 from wsproto import ConnectionType, WSConnection
 from wsproto.connection import ConnectionState
 import wsproto.frame_protocol as wsframeproto
@@ -29,6 +28,9 @@ from wsproto.events import (
     TextMessage,
 )
 import wsproto.utilities
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 _TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
 

@@ -40,7 +40,7 @@ setup(
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
-        'exceptiongroup',
+        'exceptiongroup; python_version<"3.11"',
         'trio>=0.11',
         'wsproto>=0.14',
     ],
