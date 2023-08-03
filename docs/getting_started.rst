@@ -13,7 +13,7 @@ PyPI.
 
     $ pip3 install trio-websocket
 
-You can also install from source. Visit `the project's GitHub page <https://github.com/hyperiongray/trio-websocket/>`__, where you can clone the repository or download a Zip file.
+You can also install from source. Visit `the project's GitHub page <https://github.com/python-trio/trio-websocket/>`__, where you can clone the repository or download a Zip file.
 Change into the project directory and run the following command.
 
 ::
