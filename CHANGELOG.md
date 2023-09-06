@@ -1,5 +1,9 @@
 # Release history
 
+## trio-websocket 0.10.4 (2023-09-06)
+### Fixed
+- fix client hang when connection lost just after remote closes
+
 ## trio-websocket 0.10.3 (2023-06-08)
 ### Fixed
 - fixed exception when installed trio package version has a suffix like `+dev`
