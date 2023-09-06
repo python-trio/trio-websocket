@@ -38,7 +38,7 @@ import pytest
 import trio
 import trustme
 import wsproto
-from trio.testing import memory_stream_pair
+from trio.testing import memory_stream_pair, memory_stream_pump
 from wsproto.events import CloseConnection
 
 try:
@@ -1017,3 +1017,41 @@ async def test_finalization_dropped_exception(echo_server, autojump_clock):
                     await trio.sleep_forever()
                 finally:
                     raise ValueError
+
+
+async def test_remote_close_rude():
+    """
+    Bad ordering:
+    1. Remote close
+    2. TCP closed
+    3. Local confirms
+    => no ConnectionClosed raised, client hangs forever
+    """
+    client_stream, server_stream = memory_stream_pair()
+
+    async def client():
+        client_conn = await wrap_client_stream(nursery, client_stream, HOST, RESOURCE)
+        assert not client_conn.closed
+        await client_conn.send_message('Hello from client!')
+        with pytest.raises(ConnectionClosed):
+            await client_conn.get_message()
+
+    async def server():
+        server_request = await wrap_server_stream(nursery, server_stream)
+        server_ws = await server_request.accept()
+        assert not server_ws.closed
+        msg = await server_ws.get_message()
+        assert msg == "Hello from client!"
+
+        # disable pumping so that the CloseConnection arrives at the same time as the stream closure
+        server_stream.send_stream.send_all_hook = None
+        await server_ws._send(CloseConnection(code=1000, reason=None))
+        await server_stream.aclose()
+
+        # pump the messages over
+        memory_stream_pump(server_stream.send_stream, client_stream.receive_stream)
+
+
+    async with trio.open_nursery() as nursery:
+        nursery.start_soon(server)
+        nursery.start_soon(client)

@@ -1210,45 +1210,46 @@ class WebSocketConnection(trio.abc.AsyncResource):
             except ConnectionClosed:
                 self._reader_running = False
 
-        while self._reader_running:
-            # Process events.
-            for event in self._wsproto.events():
-                event_type = type(event)
-                try:
-                    handler = handlers[event_type]
-                    logger.debug('%s received event: %s', self,
-                        event_type)
-                    await handler(event)
-                except KeyError:
-                    logger.warning('%s received unknown event type: "%s"', self,
-                        event_type)
-                except ConnectionClosed:
-                    self._reader_running = False
-                    break
+        async with self._send_channel:
+            while self._reader_running:
+                # Process events.
+                for event in self._wsproto.events():
+                    event_type = type(event)
+                    try:
+                        handler = handlers[event_type]
+                        logger.debug('%s received event: %s', self,
+                            event_type)
+                        await handler(event)
+                    except KeyError:
+                        logger.warning('%s received unknown event type: "%s"', self,
+                            event_type)
+                    except ConnectionClosed:
+                        self._reader_running = False
+                        break
 
-            # Get network data.
-            try:
-                data = await self._stream.receive_some(RECEIVE_BYTES)
-            except (trio.BrokenResourceError, trio.ClosedResourceError):
-                await self._abort_web_socket()
-                break
-            if len(data) == 0:
-                logger.debug('%s received zero bytes (connection closed)',
-                    self)
-                # If TCP closed before WebSocket, then record it as an abnormal
-                # closure.
-                if self._wsproto.state != ConnectionState.CLOSED:
-                    await self._abort_web_socket()
-                break
-            logger.debug('%s received %d bytes', self, len(data))
-            if self._wsproto.state != ConnectionState.CLOSED:
+                # Get network data.
                 try:
-                    self._wsproto.receive_data(data)
-                except wsproto.utilities.RemoteProtocolError as err:
-                    logger.debug('%s remote protocol error: %s', self, err)
-                    if err.event_hint:
-                        await self._send(err.event_hint)
-                    await self._close_stream()
+                    data = await self._stream.receive_some(RECEIVE_BYTES)
+                except (trio.BrokenResourceError, trio.ClosedResourceError):
+                    await self._abort_web_socket()
+                    break
+                if len(data) == 0:
+                    logger.debug('%s received zero bytes (connection closed)',
+                        self)
+                    # If TCP closed before WebSocket, then record it as an abnormal
+                    # closure.
+                    if self._wsproto.state != ConnectionState.CLOSED:
+                        await self._abort_web_socket()
+                    break
+                logger.debug('%s received %d bytes', self, len(data))
+                if self._wsproto.state != ConnectionState.CLOSED:
+                    try:
+                        self._wsproto.receive_data(data)
+                    except wsproto.utilities.RemoteProtocolError as err:
+                        logger.debug('%s remote protocol error: %s', self, err)
+                        if err.event_hint:
+                            await self._send(err.event_hint)
+                        await self._close_stream()
 
         logger.debug('%s reader task finished', self)
 
