@@ -1,5 +1,9 @@
 # Release history
 
+## trio-websocket 0.11.1 (2023-09-26)
+### Changed
+- remove exceptiongroup dependency for Python >= 3.11
+
 ## trio-websocket 0.10.4 (2023-09-06)
 ### Fixed
 - fix client hang when connection lost just after remote closes
