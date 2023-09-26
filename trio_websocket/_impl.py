@@ -13,7 +13,6 @@ from typing import List, Optional, Union
 
 import trio
 import trio.abc
-from exceptiongroup import BaseExceptionGroup
 from wsproto import ConnectionType, WSConnection
 from wsproto.connection import ConnectionState
 import wsproto.frame_protocol as wsframeproto
@@ -29,6 +28,10 @@ from wsproto.events import (
     TextMessage,
 )
 import wsproto.utilities
+
+if sys.version_info < (3, 11):  # pragma: no cover
+    # pylint doesn't care about the version_info check, so need to ignore the warning
+    from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
 
 _TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
 
@@ -65,7 +68,7 @@ class _preserve_current_exception:
         if value is None or not self._armed:
             return False
 
-        if _TRIO_MULTI_ERROR:
+        if _TRIO_MULTI_ERROR:  # pragma: no cover
             filtered_exception = trio.MultiError.filter(_ignore_cancel, value)  # pylint: disable=no-member
         elif isinstance(value, BaseExceptionGroup):
             filtered_exception = value.subgroup(lambda exc: not isinstance(exc, trio.Cancelled))
