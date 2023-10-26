@@ -12,7 +12,9 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.7', '3.8', '3.9', '3.10']
+        # latest pylint/astroid doesn't support 3.7
+        # python3.7 is covered in build_and_test_old_deps
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12-dev']
 
     steps:
       - uses: actions/checkout@v3
@@ -52,7 +54,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['pypy-3.7']
+        python-version: ['pypy-3.9','pypy-3.10']
 
     steps:
       - uses: actions/checkout@v3
@@ -66,11 +68,12 @@ jobs:
       - run: make test
 
   build_and_test_latest:
+    # use latest package versions meeting .in requirements
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.11']
+        python-version: ['3.12-dev']
     steps:
       - uses: actions/checkout@v3
       - name: Setup Python

@@ -29,7 +29,8 @@ from wsproto.events import (
 )
 import wsproto.utilities
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # pragma: no cover
+    # pylint doesn't care about the version_info check, so need to ignore the warning
     from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
 
 _TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split(".")[:2])) < (0, 22)
@@ -68,10 +69,15 @@ class _preserve_current_exception:
         if value is None or not self._armed:
             return False
 
+<<<<<<< HEAD
         if _TRIO_MULTI_ERROR:
             filtered_exception = trio.MultiError.filter(  # pylint: disable=no-member
                 _ignore_cancel, value
             )  # pylint: disable=no-member
+=======
+        if _TRIO_MULTI_ERROR:  # pragma: no cover
+            filtered_exception = trio.MultiError.filter(_ignore_cancel, value)  # pylint: disable=no-member
+>>>>>>> origin/master
         elif isinstance(value, BaseExceptionGroup):
             filtered_exception = value.subgroup(
                 lambda exc: not isinstance(exc, trio.Cancelled)

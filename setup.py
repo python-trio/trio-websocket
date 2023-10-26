@@ -33,6 +33,7 @@ setup(
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
     ],
@@ -40,7 +41,7 @@ setup(
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
-        'exceptiongroup',
+        'exceptiongroup; python_version<"3.11"',
         'trio>=0.11',
         'wsproto>=0.14',
     ],
