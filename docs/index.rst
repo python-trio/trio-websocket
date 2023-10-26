@@ -8,7 +8,7 @@ correctness, and ergonomics. It is based on `wsproto
 <https://sans-io.readthedocs.io/>`__ state machine that implements most aspects
 of the WebSocket protocol, including framing, codecs, and events. The
 respository is hosted `on GitHub
-<https://github.com/hyperiongray/trio-websocket/>`__. This library passes `the
+<https://github.com/python-trio/trio-websocket/>`__. This library passes `the
 Autobahn Test Suite <https://github.com/crossbario/autobahn-testsuite>`__.
 
 .. image:: https://img.shields.io/pypi/v/trio-websocket.svg?style=flat-square
@@ -16,11 +16,11 @@ Autobahn Test Suite <https://github.com/crossbario/autobahn-testsuite>`__.
     :target: https://pypi.org/project/trio-websocket/
 .. image:: https://img.shields.io/pypi/pyversions/trio-websocket.svg?style=flat-square
     :alt: Python Versions
-.. image:: https://img.shields.io/github/license/HyperionGray/trio-websocket.svg?style=flat-square
+.. image:: https://img.shields.io/github/license/python-trio/trio-websocket.svg?style=flat-square
     :alt: MIT License
-.. image:: https://img.shields.io/github/actions/workflow/status/HyperionGray/trio-websocket/ci.yml
+.. image:: https://img.shields.io/github/actions/workflow/status/python-trio/trio-websocket/ci.yml
     :alt: Build Status
-    :target: https://github.com/HyperionGray/trio-websocket/actions/workflows/ci.yml
+    :target: https://github.com/python-trio/trio-websocket/actions/workflows/ci.yml
 
 .. toctree::
    :maxdepth: 2

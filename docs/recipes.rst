@@ -57,5 +57,5 @@ connection is dropped unexpectedly or takes too long to respond, then
 wish to implement additional logic to automatically reconnect.
 
 A heartbeat feature can be enabled in the `example client
-<https://github.com/HyperionGray/trio-websocket/blob/master/examples/client.py>`__.
+<https://github.com/python-trio/trio-websocket/blob/master/examples/client.py>`__.
 with the ``--heartbeat`` flag.

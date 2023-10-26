@@ -1,12 +1,20 @@
 # Release history
 
+## trio-websocket 0.10.4 (2023-09-06)
+### Fixed
+- fix client hang when connection lost just after remote closes
+
+## trio-websocket 0.10.3 (2023-06-08)
+### Fixed
+- fixed exception when installed trio package version has a suffix like `+dev`
+
 ## trio-websocket 0.10.2 (2023-03-19)
 ### Fixed
 - fixed a race condition where, just after a local-initiated close, the
   `closed` attribute would be `None`, and `send_message()` would be silently
   ignored (wsproto < 0.2.0) or leak a `LocalProtocolError` (wsproto >= 0.2.0)
   rather than raise `ConnectionClosed`
-  ([#158](https://github.com/HyperionGray/trio-websocket/issues/158))
+  ([#158](https://github.com/python-trio/trio-websocket/issues/158))
 
 ## trio-websocket 0.10.1 (2023-03-18)
 ### Fixed
@@ -16,7 +24,7 @@
   defined to cover connections "closed or in the process of closing".
   Notably, this fixes `send_message()` leaking a wsproto `LocalProtocolError`
   with wsproto >= 1.2.0.
-  ([#175](https://github.com/HyperionGray/trio-websocket/issues/175))
+  ([#175](https://github.com/python-trio/trio-websocket/issues/175))
 
 Released as a minor version increment, since code calling `send_message()`
 is expected to handle `ConnectionClosed` anyway.
@@ -30,12 +38,12 @@ is expected to handle `ConnectionClosed` anyway.
 ## trio-websocket 0.9.2 (2021-02-05)
 ### Fixed
 - the server will now correctly close the TCP stream on a CloseConnection event
-  ([#115](https://github.com/HyperionGray/trio-websocket/issues/115))
+  ([#115](https://github.com/python-trio/trio-websocket/issues/115))
 
 ## trio-websocket 0.9.1 (2020-12-06)
 ### Fixed
 - fix client open_websocket_url() when the URL path component is empty
-  ([#148](https://github.com/HyperionGray/trio-websocket/issues/148))
+  ([#148](https://github.com/python-trio/trio-websocket/issues/148))
 
 ## trio-websocket 0.9.0 (2020-11-25)
 
@@ -54,7 +62,7 @@ is expected to handle `ConnectionClosed` anyway.
 ## trio-websocket 0.8.1 (2020-09-22)
 ### Fixed
 - reader task no longer raises unhandled exception on ClosedResourceError
-  ([#134](https://github.com/HyperionGray/trio-websocket/issues/134))
+  ([#134](https://github.com/python-trio/trio-websocket/issues/134))
 - minor issues in example code, documentation, and type-hinting
 
 ## ...

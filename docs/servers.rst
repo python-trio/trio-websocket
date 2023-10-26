@@ -34,7 +34,7 @@ revisiting the :ref:`server-example`.
 .. note::
 
     A more complete example is included `in the repository
-    <https://github.com/HyperionGray/trio-websocket/blob/master/examples/server.py>`__.
+    <https://github.com/python-trio/trio-websocket/blob/master/examples/server.py>`__.
 
 As explained in the tutorial, a WebSocket server needs a handler function and a
 host/port to bind to. The handler function receives a

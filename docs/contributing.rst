@@ -11,7 +11,7 @@ install additional dependencies that are used for testing and documentation. The
 following sequence of commands will clone the repository, create a virtual
 environment, and install the developer dependencies::
 
-    $ git clone git@github.com:HyperionGray/trio-websocket.git
+    $ git clone git@github.com:python-trio/trio-websocket.git
     $ cd trio-websocket
     $ python3 -m venv venv
     $ source venv/bin/activate
@@ -182,7 +182,7 @@ To release a new version of this library, we follow this process:
 2. Commit ``_version.py``.
 3. Create a tag, e.g. ``git tag 1.2.0``.
 4. Push the commit and the tag, e.g. ``git push && git push origin 1.2.0``.
-5. Wait for `Github CI <https://github.com/HyperionGray/trio-websocket/actions/>`__ to
+5. Wait for `Github CI <https://github.com/python-trio/trio-websocket/actions/>`__ to
    finish building and ensure that the build is successful.
 6. Wait for `Read The Docs <https://trio-websocket.readthedocs.io/en/latest/>`__
    to finish building and ensure that the build is successful.

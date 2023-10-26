@@ -19,7 +19,7 @@ setup(
     description='WebSocket library for Trio',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://github.com/HyperionGray/trio-websocket',
+    url='https://github.com/python-trio/trio-websocket',
     author='Mark E. Haase',
     author_email='mehaase@gmail.com',
     classifiers=[
@@ -45,7 +45,7 @@ setup(
         'wsproto>=0.14',
     ],
     project_urls={
-        'Bug Reports': 'https://github.com/HyperionGray/trio-websocket/issues',
-        'Source': 'https://github.com/HyperionGray/trio-websocket',
+        'Bug Reports': 'https://github.com/python-trio/trio-websocket/issues',
+        'Source': 'https://github.com/python-trio/trio-websocket',
     },
 )
