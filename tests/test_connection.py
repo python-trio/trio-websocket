@@ -1112,7 +1112,7 @@ async def test_remote_close_rude():
     async def client():
         client_conn = await wrap_client_stream(nursery, client_stream, HOST, RESOURCE)
         assert not client_conn.closed
-        await client_conn.send_message('Hello from client!')
+        await client_conn.send_message("Hello from client!")
         with pytest.raises(ConnectionClosed):
             await client_conn.get_message()
 
@@ -1130,7 +1130,6 @@ async def test_remote_close_rude():
 
         # pump the messages over
         memory_stream_pump(server_stream.send_stream, client_stream.receive_stream)
-
 
     async with trio.open_nursery() as nursery:
         nursery.start_soon(server)
