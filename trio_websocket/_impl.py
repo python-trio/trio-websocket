@@ -38,7 +38,7 @@ _TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
 MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
-RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
+DEFAULT_RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
 
 
@@ -687,7 +687,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
     def __init__(self, stream, ws_connection, *, host=None, path=None,
         client_subprotocols=None, client_extra_headers=None,
         message_queue_size=MESSAGE_QUEUE_SIZE,
-        max_message_size=MAX_MESSAGE_SIZE):
+        max_message_size=MAX_MESSAGE_SIZE,
+        receive_buffer_size=DEFAULT_RECEIVE_BYTES):
         '''
         Constructor.
 
@@ -713,6 +714,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param int max_message_size: The maximum message size as measured by
             ``len()``. If a message is received that is larger than this size,
             then the connection is closed with code 1009 (Message Too Big).
+        :param Optional[int] receive_buffer_size: The buffer size we use to
+            receive messages internally. None to let trio choose. Defaults
+            to 4 KiB.
         '''
         # NOTE: The implementation uses _close_reason for more than an advisory
         #   purpose.  It's critical internal state, indicating when the
@@ -725,6 +729,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._message_size = 0
         self._message_parts: List[Union[bytes, str]] = []
         self._max_message_size = max_message_size
+        self._receive_buffer_size = receive_buffer_size
         self._reader_running = True
         if ws_connection.client:
             self._initial_request: Optional[Request] = Request(host=host, target=path,
@@ -1232,7 +1237,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
                 # Get network data.
                 try:
-                    data = await self._stream.receive_some(RECEIVE_BYTES)
+                    data = await self._stream.receive_some(self._receive_buffer_size)
                 except (trio.BrokenResourceError, trio.ClosedResourceError):
                     await self._abort_web_socket()
                     break
