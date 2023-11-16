@@ -729,7 +729,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         self._message_size = 0
         self._message_parts: List[Union[bytes, str]] = []
         self._max_message_size = max_message_size
-        self._receive_buffer_size = receive_buffer_size
+        self._receive_buffer_size: Optional[int] = receive_buffer_size
         self._reader_running = True
         if ws_connection.client:
             self._initial_request: Optional[Request] = Request(host=host, target=path,
