@@ -194,7 +194,7 @@ async def test_serve(nursery):
     # The server nursery begins with one task (server.listen).
     assert len(nursery.child_tasks) == 1
     no_clients_nursery_count = len(task.child_nurseries)
-    async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as conn:
+    async with open_websocket(HOST, port, RESOURCE, use_ssl=False):
         # The server nursery has the same number of tasks, but there is now
         # one additional nested nursery.
         assert len(nursery.child_tasks) == 1
@@ -220,7 +220,6 @@ async def test_serve_ssl(nursery):
 
 
 async def test_serve_handler_nursery(nursery):
-    task = current_task()
     async with trio.open_nursery() as handler_nursery:
         serve_with_nursery = partial(serve_websocket, echo_request_handler,
             HOST, 0, None, handler_nursery=handler_nursery)
@@ -228,17 +227,15 @@ async def test_serve_handler_nursery(nursery):
         port = server.port
         # The server nursery begins with one task (server.listen).
         assert len(nursery.child_tasks) == 1
-        no_clients_nursery_count = len(task.child_nurseries)
-        async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as conn:
+        async with open_websocket(HOST, port, RESOURCE, use_ssl=False):
             # The handler nursery should have one task in it
             # (conn._reader_task).
             assert len(handler_nursery.child_tasks) == 1
 
 
-async def test_serve_with_zero_listeners(nursery):
-    task = current_task()
+async def test_serve_with_zero_listeners():
     with pytest.raises(ValueError):
-        server = WebSocketServer(echo_request_handler, [])
+        WebSocketServer(echo_request_handler, [])
 
 
 async def test_serve_non_tcp_listener(nursery):
@@ -290,7 +287,7 @@ async def test_client_open_url(path, expected_path, echo_server):
 
 async def test_client_open_invalid_url(echo_server):
     with pytest.raises(ValueError):
-        async with open_websocket_url('http://foo.com/bar') as conn:
+        async with open_websocket_url('http://foo.com/bar'):
             pass
 
 
@@ -358,11 +355,10 @@ async def test_handshake_has_endpoints(nursery):
         assert not request.local.is_ssl
         assert str(request.remote.address) == HOST
         assert not request.remote.is_ssl
-        conn = await request.accept()
+        await request.accept()
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
-    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False
-            ) as client_ws:
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
         pass
 
 
@@ -410,7 +406,7 @@ async def test_handshake_client_headers(nursery):
 async def test_handshake_server_headers(nursery):
     async def handler(request):
         headers = [('X-Test-Header', 'My test header')]
-        server_ws = await request.accept(extra_headers=headers)
+        await request.accept(extra_headers=headers)
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False
@@ -433,7 +429,7 @@ async def test_handshake_exception_before_accept():
             server = await nursery.start(serve_websocket, handler, HOST, 0,
                 None)
             async with open_websocket(HOST, server.port, RESOURCE,
-                    use_ssl=False) as client_ws:
+                    use_ssl=False):
                 pass
 
 
@@ -445,8 +441,7 @@ async def test_reject_handshake(nursery):
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     with pytest.raises(ConnectionRejected) as exc_info:
-        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
-                ) as client_ws:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
             pass
     exc = exc_info.value
     assert exc.body == b'My body'
@@ -467,8 +462,7 @@ async def test_reject_handshake_invalid_info_status(nursery):
     port = listeners[0].socket.getsockname()[1]
 
     with pytest.raises(ConnectionRejected) as exc_info:
-        async with open_websocket(HOST, port, RESOURCE, use_ssl=False,
-                ) as client_ws:
+        async with open_websocket(HOST, port, RESOURCE, use_ssl=False):
             pass
     exc = exc_info.value
     assert exc.status_code == 100
@@ -476,7 +470,7 @@ async def test_reject_handshake_invalid_info_status(nursery):
     assert exc.body is None
 
 
-async def test_handshake_protocol_error(nursery, echo_server):
+async def test_handshake_protocol_error(echo_server):
     '''
     If a client connects to a trio-websocket server and tries to speak HTTP
     instead of WebSocket, the server should reject the connection. (If the
@@ -604,7 +598,7 @@ async def test_client_open_timeout(nursery, autojump_clock):
     '''
     async def handler(request):
         await trio.sleep(FORCE_TIMEOUT)
-        server_ws = await request.accept()
+        await request.accept()
         pytest.fail('Should not reach this line.')
 
     server = await nursery.start(
@@ -612,7 +606,7 @@ async def test_client_open_timeout(nursery, autojump_clock):
 
     with pytest.raises(ConnectionTimeout):
         async with open_websocket(HOST, server.port, '/', use_ssl=False,
-                connect_timeout=TIMEOUT) as client_ws:
+                connect_timeout=TIMEOUT):
             pass
 
 
@@ -649,7 +643,7 @@ async def test_client_connect_networking_error():
             connect_websocket_mock:
         connect_websocket_mock.side_effect = OSError()
         with pytest.raises(HandshakeError):
-            async with open_websocket(HOST, 0, '/', use_ssl=False) as client_ws:
+            async with open_websocket(HOST, 0, '/', use_ssl=False):
                 pass
 
 
@@ -672,7 +666,7 @@ async def test_server_open_timeout(autojump_clock):
 
         old_task_count = len(nursery.child_tasks)
         # This stream is not a WebSocket, so it won't send a handshake:
-        stream = await trio.open_tcp_stream(HOST, server.port)
+        await trio.open_tcp_stream(HOST, server.port)
         # Checkpoint so the server's handler task can spawn:
         await trio.sleep(0)
         assert len(nursery.child_tasks) == old_task_count + 1, \
@@ -713,7 +707,7 @@ async def test_server_close_timeout(autojump_clock):
         # Spawn client inside an inner nursery so that we can cancel it's reader
         # so that it won't do a closing handshake.
         async with trio.open_nursery() as inner:
-            ws = await connect_websocket(inner, HOST, server.port, RESOURCE,
+            await connect_websocket(inner, HOST, server.port, RESOURCE,
                 use_ssl=False)
             # Checkpoint so the server can spawn a handler task:
             await trio.sleep(0)
@@ -785,7 +779,7 @@ async def test_server_does_not_close_handshake(nursery):
 
 async def test_server_handler_exit(nursery, autojump_clock):
     async def handler(request):
-        server_ws = await request.accept()
+        await request.accept()
         await trio.sleep(1)
 
     server = await nursery.start(
