@@ -13,6 +13,7 @@ import struct
 import urllib.parse
 from typing import Iterable, List, Optional, Union
 
+import outcome
 import trio
 import trio.abc
 from wsproto import ConnectionType, WSConnection
@@ -42,6 +43,10 @@ MESSAGE_QUEUE_SIZE = 1
 MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
 RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
+
+
+class TrioWebsocketInternalError(Exception):
+    ...
 
 
 def _ignore_cancel(exc):
@@ -125,10 +130,10 @@ async def open_websocket(
         client-side timeout (:exc:`ConnectionTimeout`, :exc:`DisconnectionTimeout`),
         or server rejection (:exc:`ConnectionRejected`) during handshakes.
     '''
-    async with trio.open_nursery() as new_nursery:
+    async def open_connection(nursery: trio.Nursery) -> WebSocketConnection:
         try:
             with trio.fail_after(connect_timeout):
-                connection = await connect_websocket(new_nursery, host, port,
+                return await connect_websocket(nursery, host, port,
                     resource, use_ssl=use_ssl, subprotocols=subprotocols,
                     extra_headers=extra_headers,
                     message_queue_size=message_queue_size,
@@ -137,14 +142,59 @@ async def open_websocket(
             raise ConnectionTimeout from None
         except OSError as e:
             raise HandshakeError from e
+
+    async def close_connection(connection: WebSocketConnection) -> None:
         try:
-            yield connection
-        finally:
-            try:
-                with trio.fail_after(disconnect_timeout):
-                    await connection.aclose()
-            except trio.TooSlowError:
-                raise DisconnectionTimeout from None
+            with trio.fail_after(disconnect_timeout):
+                await connection.aclose()
+        except trio.TooSlowError:
+            raise DisconnectionTimeout from None
+
+    connection: WebSocketConnection|None=None
+    result2: outcome.Maybe[None] | None = None
+    user_error = None
+
+    try:
+        async with trio.open_nursery() as new_nursery:
+            result = await outcome.acapture(open_connection, new_nursery)
+
+            if isinstance(result, outcome.Value):
+                connection = result.unwrap()
+                try:
+                    yield connection
+                except BaseException as e:
+                    user_error = e
+                    raise
+                finally:
+                    result2 = await outcome.acapture(close_connection, connection)
+    # This exception handler should only be entered if:
+    # 1. The _reader_task started in connect_websocket raises
+    # 2. User code raises an exception
+    except BaseExceptionGroup as e:
+        # user_error, or exception bubbling up from _reader_task
+        if len(e.exceptions) == 1:
+            raise e.exceptions[0]
+        # if the group contains two exceptions, one being Cancelled, and the other
+        # is user_error => drop Cancelled and raise user_error
+        # This Cancelled should only have been able to come from _reader_task
+        if (
+                len(e.exceptions) == 2
+                and user_error is not None
+                and user_error in e.exceptions
+                and any(isinstance(exc, trio.Cancelled) for exc in e.exceptions)
+            ):
+            raise user_error  # pylint: disable=raise-missing-from,raising-bad-type
+        raise TrioWebsocketInternalError from e  # pragma: no cover
+        ## TODO: handle keyboardinterrupt?
+
+    finally:
+        if result2 is not None:
+            result2.unwrap()
+
+
+    # error setting up, unwrap that exception
+    if connection is None:
+        result.unwrap()
 
 
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,

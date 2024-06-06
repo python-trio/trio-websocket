@@ -32,7 +32,9 @@ circumstances
 from __future__ import annotations
 
 from functools import partial, wraps
+import re
 import ssl
+import sys
 from unittest.mock import patch
 
 import attr
@@ -47,6 +49,13 @@ try:
     from trio.lowlevel import current_task  # pylint: disable=ungrouped-imports
 except ImportError:
     from trio.hazmat import current_task  # type: ignore # pylint: disable=ungrouped-imports
+
+
+# only available on trio>=0.25, we don't use it when testing lower versions
+try:
+    from trio.testing import RaisesGroup
+except ImportError:
+    pass
 
 from trio_websocket import (
     connect_websocket,
@@ -65,6 +74,9 @@ from trio_websocket import (
     wrap_client_stream,
     wrap_server_stream
 )
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
 
 WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
@@ -427,6 +439,9 @@ async def test_handshake_server_headers(nursery):
         assert header_key == b'x-test-header'
         assert header_value == b'My test header'
 
+def _trio_default_loose() -> bool:
+    assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
+    return int(trio.__version__[2:4]) < 25
 
 @fail_after(1)
 async def test_handshake_exception_before_accept() -> None:
@@ -436,13 +451,27 @@ async def test_handshake_exception_before_accept() -> None:
     async def handler(request):
         raise ValueError()
 
-    with pytest.raises(ValueError):
+    # pylint fails to resolve that BaseExceptionGroup will always be available
+    with pytest.raises((BaseExceptionGroup, ValueError)) as exc:  # pylint: disable=possibly-used-before-assignment
         async with trio.open_nursery() as nursery:
             server = await nursery.start(serve_websocket, handler, HOST, 0,
                 None)
             async with open_websocket(HOST, server.port, RESOURCE,
                     use_ssl=False):
                 pass
+
+    if _trio_default_loose():
+        assert isinstance(exc.value, ValueError)
+    else:
+        # there's 4 levels of nurseries opened, leading to 4 nested groups:
+        # 1. this test
+        # 2. WebSocketServer.run
+        # 3. trio.serve_listeners
+        # 4. WebSocketServer._handle_connection
+        assert RaisesGroup(
+            RaisesGroup(
+                RaisesGroup(
+                    RaisesGroup(ValueError)))).matches(exc.value)
 
 
 @fail_after(1)
