@@ -2,6 +2,7 @@
 This test client runs against the Autobahn test server. It is based on the
 test_client.py in wsproto.
 """
+
 import argparse
 import json
 import logging

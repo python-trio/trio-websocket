@@ -29,6 +29,7 @@ call ``ws.get_message()`` without actually sending it a message. This will cause
 the server to block until the client has sent the closing handshake. In other
 circumstances
 """
+
 from functools import partial, wraps
 import ssl
 from unittest.mock import patch
@@ -422,7 +423,7 @@ async def test_handshake_client_headers(nursery):
 @fail_after(1)
 async def test_handshake_server_headers(nursery):
     async def handler(request):
-        headers = [('X-Test-Header', 'My test header')]
+        headers = [("X-Test-Header", "My test header")]
         server_ws = await request.accept(extra_headers=headers)
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)

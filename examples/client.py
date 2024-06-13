@@ -5,6 +5,7 @@ server, including text message, ping, and close frames.
 To use SSL/TLS: install the `trustme` package from PyPI and run the
 `generate-cert.py` script in this directory.
 """
+
 import argparse
 import logging
 import pathlib
