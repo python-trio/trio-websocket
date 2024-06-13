@@ -17,6 +17,8 @@ attrs==22.2.0
     #   trio
 babel==2.12.1
     # via sphinx
+black==24.4.2
+    # via -r requirements-dev.in
 bleach==6.0.0
     # via readme-renderer
 build==0.10.0

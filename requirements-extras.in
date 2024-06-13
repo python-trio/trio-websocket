@@ -1,4 +1,5 @@
 # requirements for `make lint/docs/publish`
+black
 pylint
 sphinx
 sphinxcontrib-trio

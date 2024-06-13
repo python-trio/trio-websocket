@@ -1,5 +1,6 @@
 # requirements for `make test` and dependency management
 attrs>=19.2.0
+black>=24.4.2
 pip-tools>=5.5.0
 pytest>=4.6
 pytest-cov
