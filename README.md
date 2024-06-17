@@ -17,6 +17,10 @@ available here](https://trio-websocket.readthedocs.io).
 ![Python Versions](https://img.shields.io/pypi/pyversions/trio-websocket.svg?style=flat-square)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/python-trio/trio-websocket/ci.yml)](https://github.com/python-trio/trio-websocket/actions/workflows/ci.yml)
 [![Read the Docs](https://img.shields.io/readthedocs/trio-websocket.svg)](https://trio-websocket.readthedocs.io)
+[![Join chatroom](https://img.shields.io/badge/chat-join%20now-blue.svg)](https://gitter.im/python-trio/general)
+
+## Status
+**This project is on life-support maintenance.** If you're interested in helping to maintain and contribute, please reach out on [Gitter](https://gitter.im/python-trio/general) or contribute in issues and pull requests.
 
 ## Alternatives
 

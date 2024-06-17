@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -9,7 +11,7 @@ import random
 import ssl
 import struct
 import urllib.parse
-from typing import List, Optional, Union
+from typing import Iterable, List, Optional, Union
 
 import trio
 import trio.abc
@@ -70,7 +72,7 @@ class _preserve_current_exception:
 
         if _TRIO_MULTI_ERROR:  # pragma: no cover
             filtered_exception = trio.MultiError.filter(_ignore_cancel, value)  # pylint: disable=no-member
-        elif isinstance(value, BaseExceptionGroup):
+        elif isinstance(value, BaseExceptionGroup):  # pylint: disable=possibly-used-before-assignment
             filtered_exception = value.subgroup(lambda exc: not isinstance(exc, trio.Cancelled))
         else:
             filtered_exception = _ignore_cancel(value)
@@ -78,10 +80,19 @@ class _preserve_current_exception:
 
 
 @asynccontextmanager
-async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
-    extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
-    connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
+async def open_websocket(
+        host: str,
+        port: int,
+        resource: str,
+        *,
+        use_ssl: Union[bool, ssl.SSLContext],
+        subprotocols: Optional[Iterable[str]] = None,
+        extra_headers: Optional[list[tuple[bytes,bytes]]] = None,
+        message_queue_size: int = MESSAGE_QUEUE_SIZE,
+        max_message_size: int = MAX_MESSAGE_SIZE,
+        connect_timeout: float = CONN_TIMEOUT,
+        disconnect_timeout: float = CONN_TIMEOUT
+    ):
     '''
     Open a WebSocket client connection to a host.
 
@@ -138,7 +149,8 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
 
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,
     subprotocols=None, extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE):
+    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE
+                            ) -> WebSocketConnection:
     '''
     Return an open WebSocket client connection to a host.
 
@@ -179,6 +191,7 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
 
     logger.debug('Connecting to ws%s://%s:%d%s',
         '' if ssl_context is None else 's', host, port, resource)
+    stream: trio.SSLStream[trio.SocketStream] | trio.SocketStream
     if ssl_context is None:
         stream = await trio.open_tcp_stream(host, port)
     else:
@@ -684,10 +697,17 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, ws_connection, *, host=None, path=None,
-        client_subprotocols=None, client_extra_headers=None,
-        message_queue_size=MESSAGE_QUEUE_SIZE,
-        max_message_size=MAX_MESSAGE_SIZE):
+    def __init__(
+            self,
+            stream: trio.SocketStream | trio.SSLStream[trio.SocketStream],
+            ws_connection: wsproto.WSConnection,
+            *,
+            host=None,
+            path=None,
+            client_subprotocols=None, client_extra_headers=None,
+            message_queue_size=MESSAGE_QUEUE_SIZE,
+            max_message_size=MAX_MESSAGE_SIZE
+        ):
         '''
         Constructor.
 
@@ -734,13 +754,14 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._initial_request = None
         self._path = path
         self._subprotocol: Optional[str] = None
-        self._handshake_headers = tuple()
+        self._handshake_headers: tuple[tuple[str,str], ...] = tuple()
         self._reject_status = 0
-        self._reject_headers = tuple()
+        self._reject_headers: tuple[tuple[str,str], ...] = tuple()
         self._reject_body = b''
-        self._send_channel, self._recv_channel = trio.open_memory_channel(
-            message_queue_size)
-        self._pings = OrderedDict()
+        self._send_channel, self._recv_channel = trio.open_memory_channel[
+            Union[bytes, str]
+        ](message_queue_size)
+        self._pings: OrderedDict[bytes, trio.Event] = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
         self._connection_proposal = Future()
@@ -892,7 +913,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             raise ConnectionClosed(self._close_reason) from None
         return message
 
-    async def ping(self, payload=None):
+    async def ping(self, payload: bytes|None=None):
         '''
         Send WebSocket ping to remote endpoint and wait for a correspoding pong.
 
@@ -915,7 +936,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
         if payload in self._pings:
-            raise ValueError(f'Payload value {payload} is already in flight.')
+            raise ValueError(f'Payload value {payload!r} is already in flight.')
         if payload is None:
             payload = struct.pack('!I', random.getrandbits(32))
         event = trio.Event()
