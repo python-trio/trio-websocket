@@ -88,7 +88,7 @@ mccabe==0.7.0
     # via pylint
 mdurl==0.1.2
     # via markdown-it-py
-more-itertools==10.2.0
+more-itertools==10.3.0
     # via
     #   jaraco-classes
     #   jaraco-functools
@@ -194,8 +194,9 @@ tomli==2.0.1
     #   pytest
 tomlkit==0.12.5
     # via pylint
-trio==0.25.1
+trio==0.24.0
     # via
+    #   -r requirements-dev.in
     #   pytest-trio
     #   trio-websocket (setup.py)
 trustme==1.1.0
