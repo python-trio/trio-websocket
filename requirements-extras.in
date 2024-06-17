@@ -1,6 +1,6 @@
 # requirements for `make lint/docs/publish`
-pylint
 mypy
+pylint
 sphinx
 sphinxcontrib-trio
 sphinx_rtd_theme
