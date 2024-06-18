@@ -6,155 +6,175 @@
 #
 alabaster==0.7.13
     # via sphinx
-astroid==3.0.0
+astroid==3.2.2
     # via pylint
-async-generator==1.10
-    # via trio
-attrs==22.2.0
+attrs==23.2.0
     # via
     #   -r requirements-dev.in
     #   outcome
     #   trio
-babel==2.12.1
+babel==2.15.0
     # via sphinx
-bleach==6.0.0
-    # via readme-renderer
-build==0.10.0
+backports-tarfile==1.2.0
+    # via jaraco-context
+build==1.2.1
     # via pip-tools
-certifi==2022.12.7
+certifi==2024.6.2
     # via requests
-cffi==1.15.1
+cffi==1.16.0
     # via cryptography
-charset-normalizer==3.1.0
+charset-normalizer==3.3.2
     # via requests
-click==8.1.3
+click==8.1.7
     # via pip-tools
-coverage[toml]==7.2.1
+coverage[toml]==7.5.3
     # via pytest-cov
-cryptography==39.0.2
-    # via trustme
-dill==0.3.7
+cryptography==42.0.8
+    # via
+    #   secretstorage
+    #   trustme
+dill==0.3.8
     # via pylint
-docutils==0.18.1
+docutils==0.20.1
     # via
     #   readme-renderer
     #   sphinx
     #   sphinx-rtd-theme
-exceptiongroup==1.1.3 ; python_version < "3.11"
+exceptiongroup==1.2.1 ; python_version < "3.11"
     # via
     #   pytest
     #   trio
     #   trio-websocket (setup.py)
 h11==0.14.0
     # via wsproto
-idna==3.4
+idna==3.7
     # via
     #   requests
     #   trio
     #   trustme
 imagesize==1.4.1
     # via sphinx
-importlib-metadata==6.0.0
+importlib-metadata==7.1.0
     # via
+    #   build
     #   keyring
     #   sphinx
     #   twine
-importlib-resources==6.1.0
+importlib-resources==6.4.0
     # via keyring
 iniconfig==2.0.0
     # via pytest
-isort==5.11.5
+isort==5.13.2
     # via pylint
-jaraco-classes==3.2.3
+jaraco-classes==3.4.0
     # via keyring
-jinja2==3.1.2
+jaraco-context==5.3.0
+    # via keyring
+jaraco-functools==4.0.1
+    # via keyring
+jeepney==0.8.0
+    # via
+    #   keyring
+    #   secretstorage
+jinja2==3.1.4
     # via sphinx
-keyring==23.13.1
+keyring==25.2.1
     # via twine
-markdown-it-py==2.2.0
+markdown-it-py==3.0.0
     # via rich
-markupsafe==2.1.2
+markupsafe==2.1.5
     # via jinja2
 mccabe==0.7.0
     # via pylint
 mdurl==0.1.2
     # via markdown-it-py
-more-itertools==9.1.0
-    # via jaraco-classes
-outcome==1.2.0
+more-itertools==10.3.0
+    # via
+    #   jaraco-classes
+    #   jaraco-functools
+mypy==1.10.0
+    # via -r requirements-extras.in
+mypy-extensions==1.0.0
+    # via mypy
+nh3==0.2.17
+    # via readme-renderer
+outcome==1.3.0.post0
     # via
     #   pytest-trio
     #   trio
-packaging==23.0
+packaging==24.1
     # via
     #   build
     #   pytest
     #   sphinx
-pip-tools==6.14.0
+pip-tools==7.4.1
     # via -r requirements-dev.in
-pkginfo==1.9.6
+pkginfo==1.11.1
     # via twine
-platformdirs==3.1.1
+platformdirs==4.2.2
     # via pylint
-pluggy==1.0.0
+pluggy==1.5.0
     # via pytest
-pycparser==2.21
+pycparser==2.22
     # via cffi
-pygments==2.14.0
+pygments==2.18.0
     # via
     #   readme-renderer
     #   rich
     #   sphinx
-pylint==3.0.0a7
+pylint==3.2.3
     # via -r requirements-extras.in
-pyproject-hooks==1.0.0
-    # via build
-pytest==7.4.2
+pyproject-hooks==1.1.0
+    # via
+    #   build
+    #   pip-tools
+pytest==8.2.2
     # via
     #   -r requirements-dev.in
     #   pytest-cov
     #   pytest-trio
-pytest-cov==4.0.0
+pytest-cov==5.0.0
     # via -r requirements-dev.in
 pytest-trio==0.8.0
     # via -r requirements-dev.in
-pytz==2023.3.post1
+pytz==2024.1
     # via babel
-readme-renderer==37.3
+readme-renderer==43.0
     # via twine
-requests==2.28.2
+requests==2.32.3
     # via
     #   requests-toolbelt
     #   sphinx
     #   twine
-requests-toolbelt==0.10.1
+requests-toolbelt==1.0.0
     # via twine
 rfc3986==2.0.0
     # via twine
-rich==13.3.2
+rich==13.7.1
     # via twine
-six==1.16.0
-    # via bleach
-sniffio==1.3.0
+secretstorage==3.3.3
+    # via keyring
+sniffio==1.3.1
     # via trio
 snowballstemmer==2.2.0
     # via sphinx
 sortedcontainers==2.4.0
     # via trio
-sphinx==5.3.0
+sphinx==7.1.2
     # via
     #   -r requirements-extras.in
     #   sphinx-rtd-theme
+    #   sphinxcontrib-jquery
     #   sphinxcontrib-trio
-sphinx-rtd-theme==1.2.0
+sphinx-rtd-theme==2.0.0
     # via -r requirements-extras.in
-sphinxcontrib-applehelp==1.0.2
+sphinxcontrib-applehelp==1.0.4
     # via sphinx
 sphinxcontrib-devhelp==1.0.2
     # via sphinx
-sphinxcontrib-htmlhelp==2.0.0
+sphinxcontrib-htmlhelp==2.0.1
     # via sphinx
-sphinxcontrib-jquery==2.0.0
+sphinxcontrib-jquery==4.1
     # via sphinx-rtd-theme
 sphinxcontrib-jsmath==1.0.1
     # via sphinx
@@ -168,36 +188,36 @@ tomli==2.0.1
     # via
     #   build
     #   coverage
+    #   mypy
     #   pip-tools
     #   pylint
-    #   pyproject-hooks
     #   pytest
-tomlkit==0.11.6
+tomlkit==0.12.5
     # via pylint
-trio==0.22.0
+trio==0.24.0
     # via
+    #   -r requirements-dev.in
     #   pytest-trio
     #   trio-websocket (setup.py)
-trustme==0.9.0
+trustme==1.1.0
     # via -r requirements-dev.in
-twine==4.0.2
+twine==5.1.0
     # via -r requirements-extras.in
-typing-extensions==4.8.0
+typing-extensions==4.12.2
     # via
     #   astroid
+    #   mypy
     #   pylint
     #   rich
-urllib3==1.26.15
+urllib3==2.2.1
     # via
     #   requests
     #   twine
-webencodings==0.5.1
-    # via bleach
-wheel==0.38.4
+wheel==0.43.0
     # via pip-tools
 wsproto==1.2.0
     # via trio-websocket (setup.py)
-zipp==3.15.0
+zipp==3.19.2
     # via
     #   importlib-metadata
     #   importlib-resources

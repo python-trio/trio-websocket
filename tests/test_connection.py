@@ -29,6 +29,8 @@ call ``ws.get_message()`` without actually sending it a message. This will cause
 the server to block until the client has sent the closing handshake. In other
 circumstances
 '''
+from __future__ import annotations
+
 from functools import partial, wraps
 import ssl
 from unittest.mock import patch
@@ -44,7 +46,7 @@ from wsproto.events import CloseConnection
 try:
     from trio.lowlevel import current_task  # pylint: disable=ungrouped-imports
 except ImportError:
-    from trio.hazmat import current_task  # pylint: disable=ungrouped-imports
+    from trio.hazmat import current_task  # type: ignore # pylint: disable=ungrouped-imports
 
 from trio_websocket import (
     connect_websocket,
@@ -129,8 +131,10 @@ class fail_after:
 @attr.s(hash=False, eq=False)
 class MemoryListener(trio.abc.Listener):
     closed = attr.ib(default=False)
-    accepted_streams = attr.ib(factory=list)
-    queued_streams = attr.ib(factory=lambda: trio.open_memory_channel(1))
+    accepted_streams: list[
+        tuple[trio.abc.SendChannel[str], trio.abc.ReceiveChannel[str]]
+    ] = attr.ib(factory=list)
+    queued_streams = attr.ib(factory=lambda: trio.open_memory_channel[str](1))
     accept_hook = attr.ib(default=None)
 
     async def connect(self):
@@ -290,6 +294,14 @@ async def test_client_open_invalid_url(echo_server):
         async with open_websocket_url('http://foo.com/bar'):
             pass
 
+async def test_client_open_invalid_ssl(echo_server, nursery):
+    with pytest.raises(TypeError, match='`use_ssl` argument must be bool or ssl.SSLContext'):
+        await connect_websocket(nursery, HOST, echo_server.port, RESOURCE, use_ssl=1)
+
+    url = f'ws://{HOST}:{echo_server.port}{RESOURCE}'
+    with pytest.raises(ValueError, match='^SSL context must be None for ws: URL scheme$' ):
+        await connect_websocket_url(nursery, url, ssl_context=ssl.SSLContext(ssl.PROTOCOL_SSLv23))
+
 
 async def test_ascii_encoded_path_is_ok(echo_server):
     path = '%D7%90%D7%91%D7%90?%D7%90%D7%9E%D7%90'
@@ -417,7 +429,7 @@ async def test_handshake_server_headers(nursery):
 
 
 @fail_after(1)
-async def test_handshake_exception_before_accept():
+async def test_handshake_exception_before_accept() -> None:
     ''' In #107, a request handler that throws an exception before finishing the
     handshake causes the task to hang. The proper behavior is to raise an
     exception to the nursery as soon as possible. '''

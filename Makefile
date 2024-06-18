@@ -8,10 +8,13 @@ docs:
 	$(MAKE) -C docs html
 
 test:
-	$(PYTHON) -m pytest --cov=trio_websocket --no-cov-on-fail
+	$(PYTHON) -m pytest --cov=trio_websocket --cov-report=term-missing --no-cov-on-fail
 
 lint:
 	$(PYTHON) -m pylint trio_websocket/ tests/ autobahn/ examples/
+
+typecheck:
+	$(PYTHON) -m mypy --explicit-package-bases trio_websocket tests autobahn examples
 
 publish:
 	rm -fr build dist .egg trio_websocket.egg-info
