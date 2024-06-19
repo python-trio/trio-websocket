@@ -76,8 +76,15 @@ from trio_websocket import (
     wrap_server_stream
 )
 
+from trio_websocket._impl import _TRIO_MULTI_ERROR
+
 if sys.version_info < (3, 11):
     from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
+
+if _TRIO_MULTI_ERROR:
+    EXCEPTION_GROUP_TYPE = trio.MultiError  # type: ignore[attr-defined]  # pylint: disable=no-member
+else:
+    EXCEPTION_GROUP_TYPE = BaseExceptionGroup
 
 WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
@@ -465,7 +472,7 @@ async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
                 await trio.sleep(2)
 
     e_cause = exc_info.value.__cause__
-    assert isinstance(e_cause, BaseExceptionGroup)
+    assert isinstance(e_cause, EXCEPTION_GROUP_TYPE)
     assert any(isinstance(e, trio.TooSlowError) for e in e_cause.exceptions)
 
 @fail_after(5)
@@ -491,7 +498,7 @@ async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock)
                 await trio.sleep(2)
 
     e_cause = exc_info.value.__cause__
-    assert isinstance(e_cause, BaseExceptionGroup)
+    assert isinstance(e_cause, EXCEPTION_GROUP_TYPE)
     assert my_value_error in e_cause.exceptions
 
 @fail_after(5)

@@ -176,6 +176,11 @@ async def open_websocket(
         except trio.TooSlowError:
             raise DisconnectionTimeout from None
 
+    if _TRIO_MULTI_ERROR:
+        exception_group_type = trio.MultiError  # type: ignore[attr-defined] # pylint: disable=no-member
+    else:
+        exception_group_type = BaseExceptionGroup
+
     connection: WebSocketConnection|None=None
     result2: outcome.Maybe[None] | None = None
     user_error = None
@@ -197,7 +202,7 @@ async def open_websocket(
     # 1. The _reader_task started in connect_websocket raises
     # 2. User code raises an exception
     # I.e. open/close_connection are not included
-    except BaseExceptionGroup as e:
+    except exception_group_type as e:
         # user_error, or exception bubbling up from _reader_task
         if len(e.exceptions) == 1:
             raise e.exceptions[0]
