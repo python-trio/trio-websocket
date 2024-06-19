@@ -215,9 +215,11 @@ async def open_websocket(
                 # all exceptions are cancelled
                 # prefer raising the one from the user, for traceback reasons
                 if user_error is not None:
-                    raise user_error
+                    # no reason to raise from e, just to include a bunch of extra
+                    # cancelleds.
+                    raise user_error  # pylint: disable=raise-missing-from
                 # multiple internal Cancelled is not possible afaik
-                raise e.exceptions[0]  # pragma: no cover
+                raise e.exceptions[0]  # pragma: no cover  # pylint: disable=raise-missing-from
             raise exception_to_raise
 
         # if we have any KeyboardInterrupt in the group, make sure to raise it.
@@ -232,7 +234,9 @@ async def open_websocket(
             raise user_error from e
 
         raise TrioWebsocketInternalError(
-            "Multiple internal exceptions should not be possible. Please report this as a bug to https://github.com/python-trio/trio-websocket"
+            "Multiple internal exceptions should not be possible. "
+            "Please report this as a bug to "
+            "https://github.com/python-trio/trio-websocket"
         ) from e  # pragma: no cover
 
     finally:
