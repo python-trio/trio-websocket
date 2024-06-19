@@ -69,6 +69,7 @@ from trio_websocket import (
     open_websocket,
     open_websocket_url,
     serve_websocket,
+    WebSocketConnection,
     WebSocketServer,
     WebSocketRequest,
     wrap_client_stream,
@@ -438,6 +439,88 @@ async def test_handshake_server_headers(nursery):
         header_key, header_value = client_ws.handshake_headers[0]
         assert header_key == b'x-test-header'
         assert header_value == b'My test header'
+
+
+
+
+@fail_after(5)
+async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
+    """_reader_task._handle_ping_event triggers KeyboardInterrupt.
+    user code also raises exception.
+    Make sure that KI is delivered, and the user exception is in the __cause__ exceptiongroup
+    """
+    async def ki_raising_ping_handler(*args, **kwargs) -> None:
+        print("raising ki")
+        raise KeyboardInterrupt
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", ki_raising_ping_handler)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            with trio.fail_after(1) as cs:
+                cs.shield = True
+                await trio.sleep(2)
+
+    e_cause = exc_info.value.__cause__
+    assert isinstance(e_cause, BaseExceptionGroup)
+    assert any(isinstance(e, trio.TooSlowError) for e in e_cause.exceptions)
+
+@fail_after(5)
+async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock):
+    """_reader_task._handle_ping_event triggers ValueError.
+    user code also raises exception.
+    internal exception is in __cause__ exceptiongroup and user exc is delivered
+    """
+    my_value_error = ValueError()
+    async def raising_ping_event(*args, **kwargs) -> None:
+        raise my_value_error
+
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", raising_ping_event)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(trio.TooSlowError) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            with trio.fail_after(1) as cs:
+                cs.shield = True
+                await trio.sleep(2)
+
+    e_cause = exc_info.value.__cause__
+    assert isinstance(e_cause, BaseExceptionGroup)
+    assert my_value_error in e_cause.exceptions
+
+@fail_after(5)
+async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock):
+    """Both user code and _reader_task raise Cancellation.
+    Check that open_websocket reraises the one from user code for traceback reasons.
+
+    We monkeypatch WebSocketConnection._handle_ping_event to ensure it will actually
+    raise Cancelled upon being cancelled. For some reason it doesn't otherwise."""
+
+    async def sleeping_ping_event(*args, **kwargs) -> None:
+        await trio.sleep_forever()
+
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", sleeping_ping_event)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+    user_cancelled = None
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with trio.move_on_after(2):
+        with pytest.raises(trio.Cancelled) as exc_info:
+            async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+                try:
+                    await trio.sleep_forever()
+                except trio.Cancelled as e:
+                    user_cancelled = e
+                    raise
+    assert exc_info.value is user_cancelled
 
 def _trio_default_loose() -> bool:
     assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
