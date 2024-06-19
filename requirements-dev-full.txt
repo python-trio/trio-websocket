@@ -194,9 +194,8 @@ tomli==2.0.1
     #   pytest
 tomlkit==0.12.5
     # via pylint
-trio==0.24.0
+trio==0.25.1
     # via
-    #   -r requirements-dev.in
     #   pytest-trio
     #   trio-websocket (setup.py)
 trustme==1.1.0

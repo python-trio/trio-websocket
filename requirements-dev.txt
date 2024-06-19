@@ -71,9 +71,8 @@ tomli==2.0.1
     #   coverage
     #   pip-tools
     #   pytest
-trio==0.24.0
+trio==0.25.1
     # via
-    #   -r requirements-dev.in
     #   pytest-trio
     #   trio-websocket (setup.py)
 trustme==1.1.0
