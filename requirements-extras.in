@@ -1,5 +1,6 @@
 # requirements for `make lint/docs/publish`
 black
+mypy
 pylint
 sphinx
 sphinxcontrib-trio
