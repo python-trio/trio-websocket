@@ -15,6 +15,10 @@ attrs==23.2.0
     #   trio
 babel==2.15.0
     # via sphinx
+black==24.4.2
+    # via -r requirements-dev.in
+bleach==6.0.0
+    # via readme-renderer
 backports-tarfile==1.2.0
     # via jaraco-context
 build==1.2.1
