@@ -72,10 +72,13 @@ class _preserve_current_exception:
             return False
 
         if _TRIO_MULTI_ERROR:  # pragma: no cover
-            filtered_exception = trio.MultiError.filter(
+            filtered_exception = trio.MultiError.filter(  # pylint: disable=no-member
                 _ignore_cancel, value
             )  # pylint: disable=no-member
-        elif isinstance(value, BaseExceptionGroup):  # pylint: disable=possibly-used-before-assignment
+        elif isinstance(
+            value,
+            BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
+        ):
             filtered_exception = value.subgroup(
                 lambda exc: not isinstance(exc, trio.Cancelled)
             )
@@ -92,7 +95,7 @@ async def open_websocket(
     *,
     use_ssl: Union[bool, ssl.SSLContext],
     subprotocols: Optional[Iterable[str]] = None,
-    extra_headers: Optional[list[tuple[bytes,bytes]]] = None,
+    extra_headers: Optional[list[tuple[bytes, bytes]]] = None,
     message_queue_size: int = MESSAGE_QUEUE_SIZE,
     max_message_size: int = MAX_MESSAGE_SIZE,
     connect_timeout: float = CONN_TIMEOUT,
@@ -861,9 +864,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._initial_request = None
         self._path = path
         self._subprotocol: Optional[str] = None
-        self._handshake_headers: tuple[tuple[str,str], ...] = tuple()
+        self._handshake_headers: tuple[tuple[str, str], ...] = tuple()
         self._reject_status = 0
-        self._reject_headers: tuple[tuple[str,str], ...] = tuple()
+        self._reject_headers: tuple[tuple[str, str], ...] = tuple()
         self._reject_body = b""
         self._send_channel, self._recv_channel = trio.open_memory_channel[
             Union[bytes, str]
