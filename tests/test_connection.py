@@ -29,6 +29,7 @@ call ``ws.get_message()`` without actually sending it a message. This will cause
 the server to block until the client has sent the closing handshake. In other
 circumstances
 """
+
 from __future__ import annotations
 
 from functools import partial, wraps
@@ -304,13 +305,20 @@ async def test_client_open_invalid_url(echo_server):
         async with open_websocket_url("http://foo.com/bar") as conn:
             pass
 
+
 async def test_client_open_invalid_ssl(echo_server, nursery):
-    with pytest.raises(TypeError, match='`use_ssl` argument must be bool or ssl.SSLContext'):
+    with pytest.raises(
+        TypeError, match="`use_ssl` argument must be bool or ssl.SSLContext"
+    ):
         await connect_websocket(nursery, HOST, echo_server.port, RESOURCE, use_ssl=1)
 
-    url = f'ws://{HOST}:{echo_server.port}{RESOURCE}'
-    with pytest.raises(ValueError, match='^SSL context must be None for ws: URL scheme$' ):
-        await connect_websocket_url(nursery, url, ssl_context=ssl.SSLContext(ssl.PROTOCOL_SSLv23))
+    url = f"ws://{HOST}:{echo_server.port}{RESOURCE}"
+    with pytest.raises(
+        ValueError, match="^SSL context must be None for ws: URL scheme$"
+    ):
+        await connect_websocket_url(
+            nursery, url, ssl_context=ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+        )
 
 
 async def test_ascii_encoded_path_is_ok(echo_server):
