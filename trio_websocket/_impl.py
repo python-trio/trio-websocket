@@ -76,8 +76,7 @@ class _preserve_current_exception:
                 _ignore_cancel, value
             )  # pylint: disable=no-member
         elif isinstance(
-            value,
-            BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
+            value, BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
         ):
             filtered_exception = value.subgroup(
                 lambda exc: not isinstance(exc, trio.Cancelled)
