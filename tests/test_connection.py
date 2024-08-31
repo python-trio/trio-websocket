@@ -84,7 +84,7 @@ if sys.version_info < (3, 11):
 if _TRIO_MULTI_ERROR:
     EXCEPTION_GROUP_TYPE = trio.MultiError  # type: ignore[attr-defined]  # pylint: disable=no-member
 else:
-    EXCEPTION_GROUP_TYPE = BaseExceptionGroup
+    EXCEPTION_GROUP_TYPE = BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
 
 WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
