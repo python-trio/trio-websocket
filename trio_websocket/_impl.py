@@ -239,7 +239,7 @@ async def open_websocket(
             raise user_error from e
 
         raise TrioWebsocketInternalError(
-            "Multiple internal exceptions should not be possible. "
+            "The trio-websocket API is not expected to raise multiple exceptions. "
             "Please report this as a bug to "
             "https://github.com/python-trio/trio-websocket"
         ) from e  # pragma: no cover
