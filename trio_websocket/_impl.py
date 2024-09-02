@@ -36,7 +36,12 @@ if sys.version_info < (3, 11):  # pragma: no cover
     # pylint doesn't care about the version_info check, so need to ignore the warning
     from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
 
-_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
+_IS_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
+
+if _IS_TRIO_MULTI_ERROR:
+    _TRIO_EXC_GROUP_TYPE = trio.MultiError  # type: ignore[attr-defined] # pylint: disable=no-member
+else:
+    _TRIO_EXC_GROUP_TYPE = BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
@@ -78,7 +83,7 @@ class _preserve_current_exception:
         if value is None or not self._armed:
             return False
 
-        if _TRIO_MULTI_ERROR:  # pragma: no cover
+        if _IS_TRIO_MULTI_ERROR:  # pragma: no cover
             filtered_exception = trio.MultiError.filter(_ignore_cancel, value)  # pylint: disable=no-member
         elif isinstance(value, BaseExceptionGroup):  # pylint: disable=possibly-used-before-assignment
             filtered_exception = value.subgroup(lambda exc: not isinstance(exc, trio.Cancelled))
@@ -176,11 +181,6 @@ async def open_websocket(
         except trio.TooSlowError:
             raise DisconnectionTimeout from None
 
-    if _TRIO_MULTI_ERROR:
-        exception_group_type = trio.MultiError  # type: ignore[attr-defined] # pylint: disable=no-member
-    else:
-        exception_group_type = BaseExceptionGroup
-
     connection: WebSocketConnection|None=None
     result2: outcome.Maybe[None] | None = None
     user_error = None
@@ -202,7 +202,7 @@ async def open_websocket(
     # 1. The _reader_task started in connect_websocket raises
     # 2. User code raises an exception
     # I.e. open/close_connection are not included
-    except exception_group_type as e:
+    except _TRIO_EXC_GROUP_TYPE as e:
         # user_error, or exception bubbling up from _reader_task
         if len(e.exceptions) == 1:
             raise e.exceptions[0]
