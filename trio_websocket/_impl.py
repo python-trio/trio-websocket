@@ -161,7 +161,7 @@ async def open_websocket(
     # or in reader task then they will be set as the `__cause__`.
 
 
-    async def open_connection(nursery: trio.Nursery) -> WebSocketConnection:
+    async def _open_connection(nursery: trio.Nursery) -> WebSocketConnection:
         try:
             with trio.fail_after(connect_timeout):
                 return await connect_websocket(nursery, host, port,
@@ -174,7 +174,7 @@ async def open_websocket(
         except OSError as e:
             raise HandshakeError from e
 
-    async def close_connection(connection: WebSocketConnection) -> None:
+    async def _close_connection(connection: WebSocketConnection) -> None:
         try:
             with trio.fail_after(disconnect_timeout):
                 await connection.aclose()
@@ -182,12 +182,12 @@ async def open_websocket(
             raise DisconnectionTimeout from None
 
     connection: WebSocketConnection|None=None
-    result2: outcome.Maybe[None] | None = None
+    close_result: outcome.Maybe[None] | None = None
     user_error = None
 
     try:
         async with trio.open_nursery() as new_nursery:
-            result = await outcome.acapture(open_connection, new_nursery)
+            result = await outcome.acapture(_open_connection, new_nursery)
 
             if isinstance(result, outcome.Value):
                 connection = result.unwrap()
@@ -197,7 +197,7 @@ async def open_websocket(
                     user_error = e
                     raise
                 finally:
-                    result2 = await outcome.acapture(close_connection, connection)
+                    close_result = await outcome.acapture(_close_connection, connection)
     # This exception handler should only be entered if either:
     # 1. The _reader_task started in connect_websocket raises
     # 2. User code raises an exception
@@ -245,8 +245,8 @@ async def open_websocket(
         ) from e  # pragma: no cover
 
     finally:
-        if result2 is not None:
-            result2.unwrap()
+        if close_result is not None:
+            close_result.unwrap()
 
 
     # error setting up, unwrap that exception

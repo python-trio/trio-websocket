@@ -500,13 +500,14 @@ async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock)
 async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock):
     """Both user code and _reader_task raise Cancellation.
     Check that open_websocket reraises the one from user code for traceback reasons.
+    """
 
-    We monkeypatch WebSocketConnection._handle_ping_event to ensure it will actually
-    raise Cancelled upon being cancelled. For some reason it doesn't otherwise."""
 
     async def sleeping_ping_event(*args, **kwargs) -> None:
         await trio.sleep_forever()
 
+    # We monkeypatch WebSocketConnection._handle_ping_event to ensure it will actually
+    # raise Cancelled upon being cancelled. For some reason it doesn't otherwise.
     monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", sleeping_ping_event)
     async def handler(request):
         server_ws = await request.accept()
@@ -524,7 +525,7 @@ async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock
                     raise
     assert exc_info.value is user_cancelled
 
-def _trio_default_loose() -> bool:
+def _trio_default_non_strict_exception_groups() -> bool:
     assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
     return int(trio.__version__[2:4]) < 25
 
@@ -545,7 +546,7 @@ async def test_handshake_exception_before_accept() -> None:
                     use_ssl=False):
                 pass
 
-    if _trio_default_loose():
+    if _trio_default_non_strict_exception_groups():
         assert isinstance(exc.value, ValueError)
     else:
         # there's 4 levels of nurseries opened, leading to 4 nested groups:
