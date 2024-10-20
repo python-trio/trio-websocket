@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -91,6 +92,16 @@ class _preserve_current_exception:
             filtered_exception = _ignore_cancel(value)
         return filtered_exception is None
 
+def copy_exc(e: BaseException) -> BaseException:
+    """Copy an exception.
+
+    `copy.copy` fails on `trio.Cancelled`, and on exceptions with a custom `__init__`
+    that calls `super().__init__()`. It may be the case that this also fails on something.
+    """
+    cls = type(e)
+    result = cls.__new__(cls)
+    result.__dict__ = copy.copy(e.__dict__)
+    return result
 
 @asynccontextmanager
 async def open_websocket(
@@ -205,7 +216,7 @@ async def open_websocket(
     except _TRIO_EXC_GROUP_TYPE as e:
         # user_error, or exception bubbling up from _reader_task
         if len(e.exceptions) == 1:
-            raise e.exceptions[0]
+            raise copy_exc(e.exceptions[0]) from e.exceptions[0].__cause__
 
         # contains at most 1 non-cancelled exceptions
         exception_to_raise: BaseException|None = None
@@ -222,21 +233,21 @@ async def open_websocket(
                 if user_error is not None:
                     # no reason to raise from e, just to include a bunch of extra
                     # cancelleds.
-                    raise user_error  # pylint: disable=raise-missing-from
+                    raise copy_exc(user_error) from user_error.__cause__
                 # multiple internal Cancelled is not possible afaik
-                raise e.exceptions[0]  # pragma: no cover  # pylint: disable=raise-missing-from
-            raise exception_to_raise
+                raise copy_exc(e.exceptions[0]) from e  # pragma: no cover
+            raise copy_exc(exception_to_raise) from exception_to_raise.__cause__
 
         # if we have any KeyboardInterrupt in the group, make sure to raise it.
         for sub_exc in e.exceptions:
             if isinstance(sub_exc, KeyboardInterrupt):
-                raise sub_exc from e
+                raise copy_exc(sub_exc) from e
 
         # Both user code and internal code raised non-cancelled exceptions.
         # We "hide" the internal exception(s) in the __cause__ and surface
         # the user_error.
         if user_error is not None:
-            raise user_error from e
+            raise copy_exc(user_error) from e
 
         raise TrioWebsocketInternalError(
             "The trio-websocket API is not expected to raise multiple exceptions. "

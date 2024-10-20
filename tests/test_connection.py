@@ -513,6 +513,8 @@ async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock
         server_ws = await request.accept()
         await server_ws.ping(b"a")
     user_cancelled = None
+    user_cancelled_cause = None
+    user_cancelled_context = None
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     with trio.move_on_after(2):
@@ -522,8 +524,18 @@ async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock
                     await trio.sleep_forever()
                 except trio.Cancelled as e:
                     user_cancelled = e
+                    user_cancelled_cause = e.__cause__
+                    user_cancelled_context = e.__context__
                     raise
-    assert exc_info.value is user_cancelled
+
+    # a copy of user_cancelled is reraised
+    assert exc_info.value is not user_cancelled
+    # with the same cause
+    assert exc_info.value.__cause__ is user_cancelled_cause
+    # the context is the exception group, which contains the original user_cancelled
+    assert exc_info.value.__context__.exceptions[1] is user_cancelled
+    assert exc_info.value.__context__.exceptions[1].__cause__ is user_cancelled_cause
+    assert exc_info.value.__context__.exceptions[1].__context__ is user_cancelled_context
 
 def _trio_default_non_strict_exception_groups() -> bool:
     assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
@@ -559,6 +571,29 @@ async def test_handshake_exception_before_accept() -> None:
                 RaisesGroup(
                     RaisesGroup(ValueError)))).matches(exc.value)
 
+
+async def test_user_exception_cause(nursery) -> None:
+    async def handler(request):
+        await request.accept()
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    e_context = TypeError("foo")
+    e_primary = ValueError("bar")
+    e_cause = RuntimeError("zee")
+    with pytest.raises(ValueError) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            try:
+                raise e_context
+            except TypeError:
+                raise e_primary from e_cause
+    e = exc_info.value
+    # a copy is reraised
+    assert e is not e_primary
+    assert e.__cause__ is e_cause
+
+    # the nursery-internal group is injected as context
+    assert isinstance(e.__context__, ExceptionGroup)
+    assert e.__context__.exceptions[0] is e_primary
+    assert e.__context__.exceptions[0].__context__ is e_context
 
 @fail_after(1)
 async def test_reject_handshake(nursery):
