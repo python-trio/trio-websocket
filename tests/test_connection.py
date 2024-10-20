@@ -596,7 +596,7 @@ async def test_user_exception_cause(nursery) -> None:
         assert e.__cause__ is e_cause
 
         # the nursery-internal group is injected as context
-        assert isinstance(e.__context__, ExceptionGroup)
+        assert isinstance(e.__context__, _TRIO_EXC_GROUP_TYPE)
         assert e.__context__.exceptions[0] is e_primary
         assert e.__context__.exceptions[0].__context__ is e_context
 
