@@ -586,14 +586,19 @@ async def test_user_exception_cause(nursery) -> None:
             except TypeError:
                 raise e_primary from e_cause
     e = exc_info.value
-    # a copy is reraised
-    assert e is not e_primary
-    assert e.__cause__ is e_cause
+    if _trio_default_non_strict_exception_groups():
+        assert e is e_primary
+        assert e.__cause__ is e_cause
+        assert e.__context__ is e_context
+    else:
+        # a copy is reraised to avoid losing e_context
+        assert e is not e_primary
+        assert e.__cause__ is e_cause
 
-    # the nursery-internal group is injected as context
-    assert isinstance(e.__context__, ExceptionGroup)
-    assert e.__context__.exceptions[0] is e_primary
-    assert e.__context__.exceptions[0].__context__ is e_context
+        # the nursery-internal group is injected as context
+        assert isinstance(e.__context__, ExceptionGroup)
+        assert e.__context__.exceptions[0] is e_primary
+        assert e.__context__.exceptions[0].__context__ is e_context
 
 @fail_after(1)
 async def test_reject_handshake(nursery):
