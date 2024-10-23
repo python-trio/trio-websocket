@@ -12,7 +12,7 @@ import random
 import ssl
 import struct
 import urllib.parse
-from typing import Iterable, List, Optional, Union
+from typing import Iterable, List, NoReturn, Optional, Union
 
 import outcome
 import trio
@@ -192,9 +192,28 @@ async def open_websocket(
         except trio.TooSlowError:
             raise DisconnectionTimeout from None
 
+    def _raise(exc: BaseException) -> NoReturn:
+        __tracebackhide__ = True
+        context = exc.__context__
+        try:
+            raise exc
+        finally:
+            exc.__context__ = context
+            del exc, context
+
     connection: WebSocketConnection|None=None
     close_result: outcome.Maybe[None] | None = None
     user_error = None
+
+    # Unwrapping exception groups has a lot of pitfalls, one of them stemming from
+    # the exception we raise also being inside the group that's set as the context.
+    # This leads to loss of info unless properly handled.
+    # See https://github.com/python-trio/flake8-async/issues/298
+    # We therefore save the exception before raising it, and save our intended context,
+    # so they can be modified in the `finally`.
+    exc_to_raise = None
+    exc_context = None
+    # by avoiding use of `raise .. from ..` we leave the original __cause__
 
     try:
         async with trio.open_nursery() as new_nursery:
@@ -216,7 +235,7 @@ async def open_websocket(
     except _TRIO_EXC_GROUP_TYPE as e:
         # user_error, or exception bubbling up from _reader_task
         if len(e.exceptions) == 1:
-            raise copy_exc(e.exceptions[0]) from e.exceptions[0].__cause__
+            _raise(e.exceptions[0])
 
         # contains at most 1 non-cancelled exceptions
         exception_to_raise: BaseException|None = None
@@ -229,25 +248,40 @@ async def open_websocket(
         else:
             if exception_to_raise is None:
                 # all exceptions are cancelled
-                # prefer raising the one from the user, for traceback reasons
+                # we reraise the user exception and throw out internal
                 if user_error is not None:
-                    # no reason to raise from e, just to include a bunch of extra
-                    # cancelleds.
-                    raise copy_exc(user_error) from user_error.__cause__
+                    _raise(user_error)
                 # multiple internal Cancelled is not possible afaik
-                raise copy_exc(e.exceptions[0]) from e  # pragma: no cover
-            raise copy_exc(exception_to_raise) from exception_to_raise.__cause__
+                # but if so we just raise one of them
+                _raise(e.exceptions[0])
+            # raise the non-cancelled exception
+            _raise(exception_to_raise)
 
-        # if we have any KeyboardInterrupt in the group, make sure to raise it.
+        # if we have any KeyboardInterrupt in the group, raise a new KeyboardInterrupt
+        # with the group as cause & context
         for sub_exc in e.exceptions:
             if isinstance(sub_exc, KeyboardInterrupt):
-                raise copy_exc(sub_exc) from e
+                raise KeyboardInterrupt from e
 
         # Both user code and internal code raised non-cancelled exceptions.
-        # We "hide" the internal exception(s) in the __cause__ and surface
-        # the user_error.
+        # We set the context to be an exception group containing internal exceptions
+        # and, if not None, `user_error.__context__`
         if user_error is not None:
-            raise copy_exc(user_error) from e
+            exceptions = [subexc for subexc in e.exceptions if subexc is not user_error]
+            eg_substr = ''
+            # there's technically loss of info here, with __suppress_context__=True you
+            # still have original __context__ available, just not printed. But we delete
+            # it completely because we can't partially suppress the group
+            if user_error.__context__ is not None and not user_error.__suppress_context__:
+                exceptions.append(user_error.__context__)
+                eg_substr = ' and the context for the user exception'
+            eg_str = (
+                "Both internal and user exceptions encountered. This group contains "
+                "the internal exception(s)" + eg_substr + "."
+            )
+            user_error.__context__ = BaseExceptionGroup(eg_str, exceptions)
+            user_error.__suppress_context__ = False
+            _raise(user_error)
 
         raise TrioWebsocketInternalError(
             "The trio-websocket API is not expected to raise multiple exceptions. "

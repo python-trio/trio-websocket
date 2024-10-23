@@ -452,7 +452,6 @@ async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
     Make sure that KI is delivered, and the user exception is in the __cause__ exceptiongroup
     """
     async def ki_raising_ping_handler(*args, **kwargs) -> None:
-        print("raising ki")
         raise KeyboardInterrupt
     monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", ki_raising_ping_handler)
     async def handler(request):
@@ -474,11 +473,14 @@ async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
 async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock):
     """_reader_task._handle_ping_event triggers ValueError.
     user code also raises exception.
-    internal exception is in __cause__ exceptiongroup and user exc is delivered
+    internal exception is in __context__ exceptiongroup and user exc is delivered
     """
-    my_value_error = ValueError()
+    internal_error = ValueError()
+    internal_error.__context__ = TypeError()
+    user_error = NameError()
+    user_error_context = KeyError()
     async def raising_ping_event(*args, **kwargs) -> None:
-        raise my_value_error
+        raise internal_error
 
     monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", raising_ping_event)
     async def handler(request):
@@ -486,15 +488,17 @@ async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock)
         await server_ws.ping(b"a")
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
-    with pytest.raises(trio.TooSlowError) as exc_info:
+    with pytest.raises(type(user_error)) as exc_info:
         async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
-            with trio.fail_after(1) as cs:
-                cs.shield = True
-                await trio.sleep(2)
+            await trio.lowlevel.checkpoint()
+            user_error.__context__ = user_error_context
+            raise user_error
 
-    e_cause = exc_info.value.__cause__
-    assert isinstance(e_cause, _TRIO_EXC_GROUP_TYPE)
-    assert my_value_error in e_cause.exceptions
+    assert exc_info.value is user_error
+    e_context = exc_info.value.__context__
+    assert isinstance(e_context, BaseExceptionGroup)
+    assert internal_error in e_context.exceptions
+    assert user_error_context in e_context.exceptions
 
 @fail_after(5)
 async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock):
@@ -528,14 +532,9 @@ async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock
                     user_cancelled_context = e.__context__
                     raise
 
-    # a copy of user_cancelled is reraised
-    assert exc_info.value is not user_cancelled
-    # with the same cause
+    assert exc_info.value is user_cancelled
     assert exc_info.value.__cause__ is user_cancelled_cause
-    # the context is the exception group, which contains the original user_cancelled
-    assert exc_info.value.__context__.exceptions[1] is user_cancelled
-    assert exc_info.value.__context__.exceptions[1].__cause__ is user_cancelled_cause
-    assert exc_info.value.__context__.exceptions[1].__context__ is user_cancelled_context
+    assert exc_info.value.__context__ is user_cancelled_context
 
 def _trio_default_non_strict_exception_groups() -> bool:
     assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
@@ -586,19 +585,9 @@ async def test_user_exception_cause(nursery) -> None:
             except TypeError:
                 raise e_primary from e_cause
     e = exc_info.value
-    if _trio_default_non_strict_exception_groups():
-        assert e is e_primary
-        assert e.__cause__ is e_cause
-        assert e.__context__ is e_context
-    else:
-        # a copy is reraised to avoid losing e_context
-        assert e is not e_primary
-        assert e.__cause__ is e_cause
-
-        # the nursery-internal group is injected as context
-        assert isinstance(e.__context__, _TRIO_EXC_GROUP_TYPE)
-        assert e.__context__.exceptions[0] is e_primary
-        assert e.__context__.exceptions[0].__context__ is e_context
+    assert e is e_primary
+    assert e.__cause__ is e_cause
+    assert e.__context__ is e_context
 
 @fail_after(1)
 async def test_reject_handshake(nursery):
