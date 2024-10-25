@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import sys
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -152,14 +151,14 @@ async def open_websocket(
     # yield to user code. If only one of those raise a non-cancelled exception
     # we will raise that non-cancelled exception.
     # If we get multiple cancelled, we raise the user's cancelled.
-    # If both raise exceptions, we raise the user code's exception with the entire
-    # exception group as the __cause__.
+    # If both raise exceptions, we raise the user code's exception with __context__
+    # set to a group containing internal exception(s) + any user exception __context__
     # If we somehow get multiple exceptions, but no user exception, then we raise
     # TrioWebsocketInternalError.
 
     # If closing the connection fails, then that will be raised as the top
     # exception in the last `finally`. If we encountered exceptions in user code
-    # or in reader task then they will be set as the `__cause__`.
+    # or in reader task then they will be set as the `__context__`.
 
 
     async def _open_connection(nursery: trio.Nursery) -> WebSocketConnection:
@@ -183,6 +182,8 @@ async def open_websocket(
             raise DisconnectionTimeout from None
 
     def _raise(exc: BaseException) -> NoReturn:
+        """This helper allows re-raising an exception without __context__ being set."""
+        # cause does not need special handlng, we simply avoid using `raise .. from ..`
         __tracebackhide__ = True
         context = exc.__context__
         try:
@@ -199,11 +200,7 @@ async def open_websocket(
     # the exception we raise also being inside the group that's set as the context.
     # This leads to loss of info unless properly handled.
     # See https://github.com/python-trio/flake8-async/issues/298
-    # We therefore save the exception before raising it, and save our intended context,
-    # so they can be modified in the `finally`.
-    exc_to_raise = None
-    exc_context = None
-    # by avoiding use of `raise .. from ..` we leave the original __cause__
+    # We therefore avoid having the exceptiongroup included as either cause or context
 
     try:
         async with trio.open_nursery() as new_nursery:
@@ -243,7 +240,7 @@ async def open_websocket(
                     _raise(user_error)
                 # multiple internal Cancelled is not possible afaik
                 # but if so we just raise one of them
-                _raise(e.exceptions[0])
+                _raise(e.exceptions[0])  # pragma: no cover
             # raise the non-cancelled exception
             _raise(exception_to_raise)
 
