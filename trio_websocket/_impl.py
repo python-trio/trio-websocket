@@ -92,16 +92,6 @@ class _preserve_current_exception:
             filtered_exception = _ignore_cancel(value)
         return filtered_exception is None
 
-def copy_exc(e: BaseException) -> BaseException:
-    """Copy an exception.
-
-    `copy.copy` fails on `trio.Cancelled`, and on exceptions with a custom `__init__`
-    that calls `super().__init__()`. It may be the case that this also fails on something.
-    """
-    cls = type(e)
-    result = cls.__new__(cls)
-    result.__dict__ = copy.copy(e.__dict__)
-    return result
 
 @asynccontextmanager
 async def open_websocket(
