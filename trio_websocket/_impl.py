@@ -608,7 +608,7 @@ class ConnectionClosed(Exception):
         :param reason:
         :type reason: CloseReason
         '''
-        super().__init__()
+        super().__init__(reason)
         self.reason = reason
 
     def __repr__(self):
@@ -628,7 +628,7 @@ class ConnectionRejected(HandshakeError):
         :param reason:
         :type reason: CloseReason
         '''
-        super().__init__()
+        super().__init__(status_code, headers, body)
         #: a 3 digit HTTP status code
         self.status_code = status_code
         #: a tuple of 2-tuples containing header key/value pairs

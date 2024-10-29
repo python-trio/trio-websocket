@@ -31,6 +31,7 @@ circumstances
 '''
 from __future__ import annotations
 
+import copy
 from functools import partial, wraps
 import re
 import ssl
@@ -1205,3 +1206,16 @@ async def test_remote_close_rude():
     async with trio.open_nursery() as nursery:
         nursery.start_soon(server)
         nursery.start_soon(client)
+
+
+def test_copy_exceptions():
+    # test that exceptions are copy- and pickleable
+    copy.copy(HandshakeError())
+    copy.copy(ConnectionTimeout())
+    copy.copy(DisconnectionTimeout())
+    assert copy.copy(ConnectionClosed("foo")).reason == "foo"
+
+    rej_copy = copy.copy(ConnectionRejected(404, (("a", "b"),), b"c"))
+    assert rej_copy.status_code == 404
+    assert rej_copy.headers == (("a", "b"),)
+    assert rej_copy.body == b"c"
