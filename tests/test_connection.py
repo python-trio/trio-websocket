@@ -31,6 +31,7 @@ circumstances
 '''
 from __future__ import annotations
 
+import copy
 from functools import partial, wraps
 import re
 import ssl
@@ -452,7 +453,6 @@ async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
     Make sure that KI is delivered, and the user exception is in the __cause__ exceptiongroup
     """
     async def ki_raising_ping_handler(*args, **kwargs) -> None:
-        print("raising ki")
         raise KeyboardInterrupt
     monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", ki_raising_ping_handler)
     async def handler(request):
@@ -474,11 +474,14 @@ async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
 async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock):
     """_reader_task._handle_ping_event triggers ValueError.
     user code also raises exception.
-    internal exception is in __cause__ exceptiongroup and user exc is delivered
+    internal exception is in __context__ exceptiongroup and user exc is delivered
     """
-    my_value_error = ValueError()
+    internal_error = ValueError()
+    internal_error.__context__ = TypeError()
+    user_error = NameError()
+    user_error_context = KeyError()
     async def raising_ping_event(*args, **kwargs) -> None:
-        raise my_value_error
+        raise internal_error
 
     monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", raising_ping_event)
     async def handler(request):
@@ -486,15 +489,17 @@ async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock)
         await server_ws.ping(b"a")
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
-    with pytest.raises(trio.TooSlowError) as exc_info:
+    with pytest.raises(type(user_error)) as exc_info:
         async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
-            with trio.fail_after(1) as cs:
-                cs.shield = True
-                await trio.sleep(2)
+            await trio.lowlevel.checkpoint()
+            user_error.__context__ = user_error_context
+            raise user_error
 
-    e_cause = exc_info.value.__cause__
-    assert isinstance(e_cause, _TRIO_EXC_GROUP_TYPE)
-    assert my_value_error in e_cause.exceptions
+    assert exc_info.value is user_error
+    e_context = exc_info.value.__context__
+    assert isinstance(e_context, BaseExceptionGroup)  # pylint: disable=possibly-used-before-assignment
+    assert internal_error in e_context.exceptions
+    assert user_error_context in e_context.exceptions
 
 @fail_after(5)
 async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock):
@@ -513,6 +518,8 @@ async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock
         server_ws = await request.accept()
         await server_ws.ping(b"a")
     user_cancelled = None
+    user_cancelled_cause = None
+    user_cancelled_context = None
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     with trio.move_on_after(2):
@@ -522,8 +529,13 @@ async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock
                     await trio.sleep_forever()
                 except trio.Cancelled as e:
                     user_cancelled = e
+                    user_cancelled_cause = e.__cause__
+                    user_cancelled_context = e.__context__
                     raise
+
     assert exc_info.value is user_cancelled
+    assert exc_info.value.__cause__ is user_cancelled_cause
+    assert exc_info.value.__context__ is user_cancelled_context
 
 def _trio_default_non_strict_exception_groups() -> bool:
     assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
@@ -559,6 +571,24 @@ async def test_handshake_exception_before_accept() -> None:
                 RaisesGroup(
                     RaisesGroup(ValueError)))).matches(exc.value)
 
+
+async def test_user_exception_cause(nursery) -> None:
+    async def handler(request):
+        await request.accept()
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    e_context = TypeError("foo")
+    e_primary = ValueError("bar")
+    e_cause = RuntimeError("zee")
+    with pytest.raises(ValueError) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            try:
+                raise e_context
+            except TypeError:
+                raise e_primary from e_cause
+    e = exc_info.value
+    assert e is e_primary
+    assert e.__cause__ is e_cause
+    assert e.__context__ is e_context
 
 @fail_after(1)
 async def test_reject_handshake(nursery):
@@ -1176,3 +1206,16 @@ async def test_remote_close_rude():
     async with trio.open_nursery() as nursery:
         nursery.start_soon(server)
         nursery.start_soon(client)
+
+
+def test_copy_exceptions():
+    # test that exceptions are copy- and pickleable
+    copy.copy(HandshakeError())
+    copy.copy(ConnectionTimeout())
+    copy.copy(DisconnectionTimeout())
+    assert copy.copy(ConnectionClosed("foo")).reason == "foo"
+
+    rej_copy = copy.copy(ConnectionRejected(404, (("a", "b"),), b"c"))
+    assert rej_copy.status_code == 404
+    assert rej_copy.headers == (("a", "b"),)
+    assert rej_copy.body == b"c"
