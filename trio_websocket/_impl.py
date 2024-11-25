@@ -11,7 +11,7 @@ import random
 import ssl
 import struct
 import urllib.parse
-from typing import Iterable, List, Optional, Union
+from typing import Iterable, List, NoReturn, Optional, Union
 
 import outcome
 import trio
@@ -151,14 +151,14 @@ async def open_websocket(
     # yield to user code. If only one of those raise a non-cancelled exception
     # we will raise that non-cancelled exception.
     # If we get multiple cancelled, we raise the user's cancelled.
-    # If both raise exceptions, we raise the user code's exception with the entire
-    # exception group as the __cause__.
+    # If both raise exceptions, we raise the user code's exception with __context__
+    # set to a group containing internal exception(s) + any user exception __context__
     # If we somehow get multiple exceptions, but no user exception, then we raise
     # TrioWebsocketInternalError.
 
     # If closing the connection fails, then that will be raised as the top
     # exception in the last `finally`. If we encountered exceptions in user code
-    # or in reader task then they will be set as the `__cause__`.
+    # or in reader task then they will be set as the `__context__`.
 
 
     async def _open_connection(nursery: trio.Nursery) -> WebSocketConnection:
@@ -181,9 +181,26 @@ async def open_websocket(
         except trio.TooSlowError:
             raise DisconnectionTimeout from None
 
+    def _raise(exc: BaseException) -> NoReturn:
+        """This helper allows re-raising an exception without __context__ being set."""
+        # cause does not need special handlng, we simply avoid using `raise .. from ..`
+        __tracebackhide__ = True
+        context = exc.__context__
+        try:
+            raise exc
+        finally:
+            exc.__context__ = context
+            del exc, context
+
     connection: WebSocketConnection|None=None
     close_result: outcome.Maybe[None] | None = None
     user_error = None
+
+    # Unwrapping exception groups has a lot of pitfalls, one of them stemming from
+    # the exception we raise also being inside the group that's set as the context.
+    # This leads to loss of info unless properly handled.
+    # See https://github.com/python-trio/flake8-async/issues/298
+    # We therefore avoid having the exceptiongroup included as either cause or context
 
     try:
         async with trio.open_nursery() as new_nursery:
@@ -205,7 +222,7 @@ async def open_websocket(
     except _TRIO_EXC_GROUP_TYPE as e:
         # user_error, or exception bubbling up from _reader_task
         if len(e.exceptions) == 1:
-            raise e.exceptions[0]
+            _raise(e.exceptions[0])
 
         # contains at most 1 non-cancelled exceptions
         exception_to_raise: BaseException|None = None
@@ -218,25 +235,40 @@ async def open_websocket(
         else:
             if exception_to_raise is None:
                 # all exceptions are cancelled
-                # prefer raising the one from the user, for traceback reasons
+                # we reraise the user exception and throw out internal
                 if user_error is not None:
-                    # no reason to raise from e, just to include a bunch of extra
-                    # cancelleds.
-                    raise user_error  # pylint: disable=raise-missing-from
+                    _raise(user_error)
                 # multiple internal Cancelled is not possible afaik
-                raise e.exceptions[0]  # pragma: no cover  # pylint: disable=raise-missing-from
-            raise exception_to_raise
+                # but if so we just raise one of them
+                _raise(e.exceptions[0])  # pragma: no cover
+            # raise the non-cancelled exception
+            _raise(exception_to_raise)
 
-        # if we have any KeyboardInterrupt in the group, make sure to raise it.
+        # if we have any KeyboardInterrupt in the group, raise a new KeyboardInterrupt
+        # with the group as cause & context
         for sub_exc in e.exceptions:
             if isinstance(sub_exc, KeyboardInterrupt):
-                raise sub_exc from e
+                raise KeyboardInterrupt from e
 
         # Both user code and internal code raised non-cancelled exceptions.
-        # We "hide" the internal exception(s) in the __cause__ and surface
-        # the user_error.
+        # We set the context to be an exception group containing internal exceptions
+        # and, if not None, `user_error.__context__`
         if user_error is not None:
-            raise user_error from e
+            exceptions = [subexc for subexc in e.exceptions if subexc is not user_error]
+            eg_substr = ''
+            # there's technically loss of info here, with __suppress_context__=True you
+            # still have original __context__ available, just not printed. But we delete
+            # it completely because we can't partially suppress the group
+            if user_error.__context__ is not None and not user_error.__suppress_context__:
+                exceptions.append(user_error.__context__)
+                eg_substr = ' and the context for the user exception'
+            eg_str = (
+                "Both internal and user exceptions encountered. This group contains "
+                "the internal exception(s)" + eg_substr + "."
+            )
+            user_error.__context__ = BaseExceptionGroup(eg_str, exceptions)
+            user_error.__suppress_context__ = False
+            _raise(user_error)
 
         raise TrioWebsocketInternalError(
             "The trio-websocket API is not expected to raise multiple exceptions. "
@@ -576,7 +608,7 @@ class ConnectionClosed(Exception):
         :param reason:
         :type reason: CloseReason
         '''
-        super().__init__()
+        super().__init__(reason)
         self.reason = reason
 
     def __repr__(self):
@@ -596,7 +628,7 @@ class ConnectionRejected(HandshakeError):
         :param reason:
         :type reason: CloseReason
         '''
-        super().__init__()
+        super().__init__(status_code, headers, body)
         #: a 3 digit HTTP status code
         self.status_code = status_code
         #: a tuple of 2-tuples containing header key/value pairs
