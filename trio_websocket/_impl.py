@@ -46,7 +46,6 @@ else:
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
 MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
-RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
 
 
@@ -1392,7 +1391,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
                 # Get network data.
                 try:
-                    data = await self._stream.receive_some(RECEIVE_BYTES)
+                    data = await self._stream.receive_some()
                 except (trio.BrokenResourceError, trio.ClosedResourceError):
                     await self._abort_web_socket()
                     break
