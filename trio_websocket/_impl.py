@@ -1427,9 +1427,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
             msg: str | bytes
             # Type checker does not understand `_message_parts`
             if isinstance(event, BytesMessage):
-                msg = b''.join(cast(list[bytes], self._message_parts))
+                msg = b''.join(cast("list[bytes]", self._message_parts))
             else:
-                msg = ''.join(cast(list[str], self._message_parts))
+                msg = ''.join(cast("list[str]", self._message_parts))
             self._message_size = 0
             self._message_parts = []
             try:

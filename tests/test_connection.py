@@ -161,7 +161,7 @@ class fail_after:
 @attr.s(hash=False, eq=False)
 class MemoryListener(
     trio.abc.Listener[
-        trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
+        "trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]"
     ]
 ):
     closed: bool = attr.ib(default=False)
@@ -700,7 +700,7 @@ async def test_reject_handshake_invalid_info_status(nursery: trio.Nursery) -> No
         await stream.receive_some(max_bytes=1024)
     serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     raw_listeners = await nursery.start(serve_fn)
-    listeners = cast(list[trio.SocketListener], raw_listeners)
+    listeners = cast("list[trio.SocketListener]", raw_listeners)
     port = listeners[0].socket.getsockname()[1]
 
     with pytest.raises(ConnectionRejected) as exc_info:
@@ -833,7 +833,7 @@ async def test_wrap_server_stream(nursery: trio.Nursery) -> None:
         assert server_ws.closed
     serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     raw_listeners = await nursery.start(serve_fn)
-    listeners = cast(list[trio.SocketListener], raw_listeners)
+    listeners = cast("list[trio.SocketListener]", raw_listeners)
     port = listeners[0].socket.getsockname()[1]
     async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
         await client.send_message('Hello from client!')
@@ -1032,7 +1032,7 @@ async def test_server_does_not_close_handshake(nursery: trio.Nursery) -> None:
                 await server_ws.send_message('Hello from client!')
     serve_fn = partial(trio.serve_tcp, handler, 0, host=HOST)
     raw_listeners = await nursery.start(serve_fn)
-    listeners = cast(list[trio.SocketListener], raw_listeners)
+    listeners = cast("list[trio.SocketListener]", raw_listeners)
     port = listeners[0].socket.getsockname()[1]
     async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as client:
         with pytest.raises(ConnectionClosed):
@@ -1346,8 +1346,8 @@ def test_copy_exceptions() -> None:
     copy.copy(ConnectionTimeout())
     copy.copy(DisconnectionTimeout())
     assert copy.copy(
-        ConnectionClosed("foo")
-    ).reason == "foo"  # type: ignore[comparison-overlap,arg-type]
+        ConnectionClosed("foo")  # type: ignore[arg-type]
+    ).reason == "foo"  # type: ignore[comparison-overlap]
 
     rej_copy = copy.copy(ConnectionRejected(404, ((b"a", b"b"),), b"c"))
     assert rej_copy.status_code == 404
