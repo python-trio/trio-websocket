@@ -36,12 +36,14 @@ if sys.version_info < (3, 11):  # pragma: no cover
     # pylint doesn't care about the version_info check, so need to ignore the warning
     from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
 
-_IS_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
+_IS_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split(".")[:2])) < (0, 22)
 
 if _IS_TRIO_MULTI_ERROR:
     _TRIO_EXC_GROUP_TYPE = trio.MultiError  # type: ignore[attr-defined] # pylint: disable=no-member
 else:
-    _TRIO_EXC_GROUP_TYPE = BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
+    _TRIO_EXC_GROUP_TYPE = (
+        BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
+    )
 
 CONN_TIMEOUT = 60  # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
@@ -85,9 +87,15 @@ class _preserve_current_exception:
             return False
 
         if _IS_TRIO_MULTI_ERROR:  # pragma: no cover
-            filtered_exception = trio.MultiError.filter(_ignore_cancel, value)  # pylint: disable=no-member
-        elif isinstance(value, BaseExceptionGroup):  # pylint: disable=possibly-used-before-assignment
-            filtered_exception = value.subgroup(lambda exc: not isinstance(exc, trio.Cancelled))
+            filtered_exception = trio.MultiError.filter(
+                _ignore_cancel, value
+            )  # pylint: disable=no-member
+        elif isinstance(
+            value, BaseExceptionGroup
+        ):  # pylint: disable=possibly-used-before-assignment
+            filtered_exception = value.subgroup(
+                lambda exc: not isinstance(exc, trio.Cancelled)
+            )
         else:
             filtered_exception = _ignore_cancel(value)
         return filtered_exception is None
@@ -138,7 +146,7 @@ async def open_websocket(
     :raises HandshakeError: for any networking error,
         client-side timeout (:exc:`ConnectionTimeout`, :exc:`DisconnectionTimeout`),
         or server rejection (:exc:`ConnectionRejected`) during handshakes.
-    '''
+    """
 
     # This context manager tries very very hard not to raise an exceptiongroup
     # in order to be as transparent as possible for the end user.
@@ -161,12 +169,16 @@ async def open_websocket(
     # exception in the last `finally`. If we encountered exceptions in user code
     # or in reader task then they will be set as the `__context__`.
 
-
     async def _open_connection(nursery: trio.Nursery) -> WebSocketConnection:
         try:
             with trio.fail_after(connect_timeout):
-                return await connect_websocket(nursery, host, port,
-                    resource, use_ssl=use_ssl, subprotocols=subprotocols,
+                return await connect_websocket(
+                    nursery,
+                    host,
+                    port,
+                    resource,
+                    use_ssl=use_ssl,
+                    subprotocols=subprotocols,
                     extra_headers=extra_headers,
                     message_queue_size=message_queue_size,
                     max_message_size=max_message_size,
@@ -194,7 +206,7 @@ async def open_websocket(
             exc.__context__ = context
             del exc, context
 
-    connection: WebSocketConnection|None=None
+    connection: WebSocketConnection | None = None
     close_result: outcome.Maybe[None] | None = None
     user_error = None
 
@@ -227,7 +239,7 @@ async def open_websocket(
             _raise(e.exceptions[0])
 
         # contains at most 1 non-cancelled exceptions
-        exception_to_raise: BaseException|None = None
+        exception_to_raise: BaseException | None = None
         for sub_exc in e.exceptions:
             if not isinstance(sub_exc, trio.Cancelled):
                 if exception_to_raise is not None:
@@ -257,13 +269,16 @@ async def open_websocket(
         # and, if not None, `user_error.__context__`
         if user_error is not None:
             exceptions = [subexc for subexc in e.exceptions if subexc is not user_error]
-            eg_substr = ''
+            eg_substr = ""
             # there's technically loss of info here, with __suppress_context__=True you
             # still have original __context__ available, just not printed. But we delete
             # it completely because we can't partially suppress the group
-            if user_error.__context__ is not None and not user_error.__suppress_context__:
+            if (
+                user_error.__context__ is not None
+                and not user_error.__suppress_context__
+            ):
                 exceptions.append(user_error.__context__)
-                eg_substr = ' and the context for the user exception'
+                eg_substr = " and the context for the user exception"
             eg_str = (
                 "Both internal and user exceptions encountered. This group contains "
                 "the internal exception(s)" + eg_substr + "."
@@ -281,7 +296,6 @@ async def open_websocket(
     finally:
         if close_result is not None:
             close_result.unwrap()
-
 
     # error setting up, unwrap that exception
     if connection is None:
@@ -695,7 +709,7 @@ class ConnectionClosed(Exception):
 
         :param reason:
         :type reason: CloseReason
-        '''
+        """
         super().__init__(reason)
         self.reason = reason
 
@@ -716,7 +730,7 @@ class ConnectionRejected(HandshakeError):
 
         :param reason:
         :type reason: CloseReason
-        '''
+        """
         super().__init__(status_code, headers, body)
         #: a 3 digit HTTP status code
         self.status_code = status_code
