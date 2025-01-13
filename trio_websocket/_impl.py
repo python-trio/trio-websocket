@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -9,8 +11,9 @@ import random
 import ssl
 import struct
 import urllib.parse
-from typing import List, Optional, Union
+from typing import Iterable, List, NoReturn, Optional, Union
 
+import outcome
 import trio
 import trio.abc
 from wsproto import ConnectionType, WSConnection
@@ -33,13 +36,25 @@ if sys.version_info < (3, 11):  # pragma: no cover
     # pylint doesn't care about the version_info check, so need to ignore the warning
     from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
 
-_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
+_IS_TRIO_MULTI_ERROR = tuple(map(int, trio.__version__.split('.')[:2])) < (0, 22)
+
+if _IS_TRIO_MULTI_ERROR:
+    _TRIO_EXC_GROUP_TYPE = trio.MultiError  # type: ignore[attr-defined] # pylint: disable=no-member
+else:
+    _TRIO_EXC_GROUP_TYPE = BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
 
 CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
 MESSAGE_QUEUE_SIZE = 1
 MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
 RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
 logger = logging.getLogger('trio-websocket')
+
+
+class TrioWebsocketInternalError(Exception):
+    """Raised as a fallback when open_websocket is unable to unwind an exceptiongroup
+    into a single preferred exception. This should never happen, if it does then
+    underlying assumptions about the internal code are incorrect.
+    """
 
 
 def _ignore_cancel(exc):
@@ -68,9 +83,9 @@ class _preserve_current_exception:
         if value is None or not self._armed:
             return False
 
-        if _TRIO_MULTI_ERROR:  # pragma: no cover
+        if _IS_TRIO_MULTI_ERROR:  # pragma: no cover
             filtered_exception = trio.MultiError.filter(_ignore_cancel, value)  # pylint: disable=no-member
-        elif isinstance(value, BaseExceptionGroup):
+        elif isinstance(value, BaseExceptionGroup):  # pylint: disable=possibly-used-before-assignment
             filtered_exception = value.subgroup(lambda exc: not isinstance(exc, trio.Cancelled))
         else:
             filtered_exception = _ignore_cancel(value)
@@ -78,11 +93,20 @@ class _preserve_current_exception:
 
 
 @asynccontextmanager
-async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
-    extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
-    receive_buffer_size=RECEIVE_BYTES,
-    connect_timeout=CONN_TIMEOUT, disconnect_timeout=CONN_TIMEOUT):
+async def open_websocket(
+    host: str,
+    port: int,
+    resource: str,
+    *,
+    use_ssl: Union[bool, ssl.SSLContext],
+    subprotocols: Optional[Iterable[str]] = None,
+    extra_headers: Optional[list[tuple[bytes,bytes]]] = None,
+    message_queue_size: int = MESSAGE_QUEUE_SIZE,
+    max_message_size: int = MAX_MESSAGE_SIZE,
+    receive_buffer_size: int = RECEIVE_BYTES,
+    connect_timeout: float = CONN_TIMEOUT,
+    disconnect_timeout: float = CONN_TIMEOUT
+):
     '''
     Open a WebSocket client connection to a host.
 
@@ -118,10 +142,33 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
         client-side timeout (:exc:`ConnectionTimeout`, :exc:`DisconnectionTimeout`),
         or server rejection (:exc:`ConnectionRejected`) during handshakes.
     '''
-    async with trio.open_nursery() as new_nursery:
+
+    # This context manager tries very very hard not to raise an exceptiongroup
+    # in order to be as transparent as possible for the end user.
+    # In the trivial case, this means that if user code inside the cm raises
+    # we make sure that it doesn't get wrapped.
+
+    # If opening the connection fails, then we will raise that exception. User
+    # code is never executed, so we will never have multiple exceptions.
+
+    # After opening the connection, we spawn _reader_task in the background and
+    # yield to user code. If only one of those raise a non-cancelled exception
+    # we will raise that non-cancelled exception.
+    # If we get multiple cancelled, we raise the user's cancelled.
+    # If both raise exceptions, we raise the user code's exception with __context__
+    # set to a group containing internal exception(s) + any user exception __context__
+    # If we somehow get multiple exceptions, but no user exception, then we raise
+    # TrioWebsocketInternalError.
+
+    # If closing the connection fails, then that will be raised as the top
+    # exception in the last `finally`. If we encountered exceptions in user code
+    # or in reader task then they will be set as the `__context__`.
+
+
+    async def _open_connection(nursery: trio.Nursery) -> WebSocketConnection:
         try:
             with trio.fail_after(connect_timeout):
-                connection = await connect_websocket(new_nursery, host, port,
+                return await connect_websocket(nursery, host, port,
                     resource, use_ssl=use_ssl, subprotocols=subprotocols,
                     extra_headers=extra_headers,
                     message_queue_size=message_queue_size,
@@ -131,20 +178,126 @@ async def open_websocket(host, port, resource, *, use_ssl, subprotocols=None,
             raise ConnectionTimeout from None
         except OSError as e:
             raise HandshakeError from e
+
+    async def _close_connection(connection: WebSocketConnection) -> None:
         try:
-            yield connection
+            with trio.fail_after(disconnect_timeout):
+                await connection.aclose()
+        except trio.TooSlowError:
+            raise DisconnectionTimeout from None
+
+    def _raise(exc: BaseException) -> NoReturn:
+        """This helper allows re-raising an exception without __context__ being set."""
+        # cause does not need special handlng, we simply avoid using `raise .. from ..`
+        __tracebackhide__ = True
+        context = exc.__context__
+        try:
+            raise exc
         finally:
-            try:
-                with trio.fail_after(disconnect_timeout):
-                    await connection.aclose()
-            except trio.TooSlowError:
-                raise DisconnectionTimeout from None
+            exc.__context__ = context
+            del exc, context
+
+    connection: WebSocketConnection|None=None
+    close_result: outcome.Maybe[None] | None = None
+    user_error = None
+
+    # Unwrapping exception groups has a lot of pitfalls, one of them stemming from
+    # the exception we raise also being inside the group that's set as the context.
+    # This leads to loss of info unless properly handled.
+    # See https://github.com/python-trio/flake8-async/issues/298
+    # We therefore avoid having the exceptiongroup included as either cause or context
+
+    try:
+        async with trio.open_nursery() as new_nursery:
+            result = await outcome.acapture(_open_connection, new_nursery)
+
+            if isinstance(result, outcome.Value):
+                connection = result.unwrap()
+                try:
+                    yield connection
+                except BaseException as e:
+                    user_error = e
+                    raise
+                finally:
+                    close_result = await outcome.acapture(_close_connection, connection)
+    # This exception handler should only be entered if either:
+    # 1. The _reader_task started in connect_websocket raises
+    # 2. User code raises an exception
+    # I.e. open/close_connection are not included
+    except _TRIO_EXC_GROUP_TYPE as e:
+        # user_error, or exception bubbling up from _reader_task
+        if len(e.exceptions) == 1:
+            _raise(e.exceptions[0])
+
+        # contains at most 1 non-cancelled exceptions
+        exception_to_raise: BaseException|None = None
+        for sub_exc in e.exceptions:
+            if not isinstance(sub_exc, trio.Cancelled):
+                if exception_to_raise is not None:
+                    # multiple non-cancelled
+                    break
+                exception_to_raise = sub_exc
+        else:
+            if exception_to_raise is None:
+                # all exceptions are cancelled
+                # we reraise the user exception and throw out internal
+                if user_error is not None:
+                    _raise(user_error)
+                # multiple internal Cancelled is not possible afaik
+                # but if so we just raise one of them
+                _raise(e.exceptions[0])  # pragma: no cover
+            # raise the non-cancelled exception
+            _raise(exception_to_raise)
+
+        # if we have any KeyboardInterrupt in the group, raise a new KeyboardInterrupt
+        # with the group as cause & context
+        for sub_exc in e.exceptions:
+            if isinstance(sub_exc, KeyboardInterrupt):
+                raise KeyboardInterrupt from e
+
+        # Both user code and internal code raised non-cancelled exceptions.
+        # We set the context to be an exception group containing internal exceptions
+        # and, if not None, `user_error.__context__`
+        if user_error is not None:
+            exceptions = [subexc for subexc in e.exceptions if subexc is not user_error]
+            eg_substr = ''
+            # there's technically loss of info here, with __suppress_context__=True you
+            # still have original __context__ available, just not printed. But we delete
+            # it completely because we can't partially suppress the group
+            if user_error.__context__ is not None and not user_error.__suppress_context__:
+                exceptions.append(user_error.__context__)
+                eg_substr = ' and the context for the user exception'
+            eg_str = (
+                "Both internal and user exceptions encountered. This group contains "
+                "the internal exception(s)" + eg_substr + "."
+            )
+            user_error.__context__ = BaseExceptionGroup(eg_str, exceptions)
+            user_error.__suppress_context__ = False
+            _raise(user_error)
+
+        raise TrioWebsocketInternalError(
+            "The trio-websocket API is not expected to raise multiple exceptions. "
+            "Please report this as a bug to "
+            "https://github.com/python-trio/trio-websocket"
+        ) from e  # pragma: no cover
+
+    finally:
+        if close_result is not None:
+            close_result.unwrap()
+
+
+    # error setting up, unwrap that exception
+    if connection is None:
+        result.unwrap()
 
 
 async def connect_websocket(nursery, host, port, resource, *, use_ssl,
-    subprotocols=None, extra_headers=None,
-    message_queue_size=MESSAGE_QUEUE_SIZE, max_message_size=MAX_MESSAGE_SIZE,
-    receive_buffer_size=RECEIVE_BYTES):
+    subprotocols=None,
+    extra_headers=None,
+    message_queue_size=MESSAGE_QUEUE_SIZE,
+    max_message_size=MAX_MESSAGE_SIZE,
+    receive_buffer_size=RECEIVE_BYTES,
+) -> WebSocketConnection:
     '''
     Return an open WebSocket client connection to a host.
 
@@ -188,6 +341,7 @@ async def connect_websocket(nursery, host, port, resource, *, use_ssl,
 
     logger.debug('Connecting to ws%s://%s:%d%s',
         '' if ssl_context is None else 's', host, port, resource)
+    stream: trio.SSLStream[trio.SocketStream] | trio.SocketStream
     if ssl_context is None:
         stream = await trio.open_tcp_stream(host, port)
     else:
@@ -492,7 +646,7 @@ class ConnectionClosed(Exception):
         :param reason:
         :type reason: CloseReason
         '''
-        super().__init__()
+        super().__init__(reason)
         self.reason = reason
 
     def __repr__(self):
@@ -512,7 +666,7 @@ class ConnectionRejected(HandshakeError):
         :param reason:
         :type reason: CloseReason
         '''
-        super().__init__()
+        super().__init__(status_code, headers, body)
         #: a 3 digit HTTP status code
         self.status_code = status_code
         #: a tuple of 2-tuples containing header key/value pairs
@@ -720,11 +874,19 @@ class WebSocketConnection(trio.abc.AsyncResource):
 
     CONNECTION_ID = itertools.count()
 
-    def __init__(self, stream, ws_connection, *, host=None, path=None,
-        client_subprotocols=None, client_extra_headers=None,
+    def __init__(
+        self,
+        stream: trio.SocketStream | trio.SSLStream[trio.SocketStream],
+        ws_connection: wsproto.WSConnection,
+        *,
+        host=None,
+        path=None,
+        client_subprotocols=None,
+        client_extra_headers=None,
         message_queue_size=MESSAGE_QUEUE_SIZE,
         max_message_size=MAX_MESSAGE_SIZE,
-        receive_buffer_size=RECEIVE_BYTES):
+        receive_buffer_size=RECEIVE_BYTES,
+    ) -> None:
         '''
         Constructor.
 
@@ -775,13 +937,14 @@ class WebSocketConnection(trio.abc.AsyncResource):
             self._initial_request = None
         self._path = path
         self._subprotocol: Optional[str] = None
-        self._handshake_headers = tuple()
+        self._handshake_headers: tuple[tuple[str,str], ...] = tuple()
         self._reject_status = 0
-        self._reject_headers = tuple()
+        self._reject_headers: tuple[tuple[str,str], ...] = tuple()
         self._reject_body = b''
-        self._send_channel, self._recv_channel = trio.open_memory_channel(
-            message_queue_size)
-        self._pings = OrderedDict()
+        self._send_channel, self._recv_channel = trio.open_memory_channel[
+            Union[bytes, str]
+        ](message_queue_size)
+        self._pings: OrderedDict[bytes, trio.Event] = OrderedDict()
         # Set when the server has received a connection request event. This
         # future is never set on client connections.
         self._connection_proposal = Future()
@@ -933,7 +1096,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
             raise ConnectionClosed(self._close_reason) from None
         return message
 
-    async def ping(self, payload=None):
+    async def ping(self, payload: bytes|None=None):
         '''
         Send WebSocket ping to remote endpoint and wait for a correspoding pong.
 
@@ -956,7 +1119,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         if self._close_reason:
             raise ConnectionClosed(self._close_reason)
         if payload in self._pings:
-            raise ValueError(f'Payload value {payload} is already in flight.')
+            raise ValueError(f'Payload value {payload!r} is already in flight.')
         if payload is None:
             payload = struct.pack('!I', random.getrandbits(32))
         event = trio.Event()

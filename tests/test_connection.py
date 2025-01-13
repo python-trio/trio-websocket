@@ -29,8 +29,13 @@ call ``ws.get_message()`` without actually sending it a message. This will cause
 the server to block until the client has sent the closing handshake. In other
 circumstances
 '''
+from __future__ import annotations
+
+import copy
 from functools import partial, wraps
+import re
 import ssl
+import sys
 from unittest.mock import patch
 
 import attr
@@ -44,7 +49,14 @@ from wsproto.events import CloseConnection
 try:
     from trio.lowlevel import current_task  # pylint: disable=ungrouped-imports
 except ImportError:
-    from trio.hazmat import current_task  # pylint: disable=ungrouped-imports
+    from trio.hazmat import current_task  # type: ignore # pylint: disable=ungrouped-imports
+
+
+# only available on trio>=0.25, we don't use it when testing lower versions
+try:
+    from trio.testing import RaisesGroup
+except ImportError:
+    pass
 
 from trio_websocket import (
     connect_websocket,
@@ -58,11 +70,17 @@ from trio_websocket import (
     open_websocket,
     open_websocket_url,
     serve_websocket,
+    WebSocketConnection,
     WebSocketServer,
     WebSocketRequest,
     wrap_client_stream,
     wrap_server_stream
 )
+
+from trio_websocket._impl import _TRIO_EXC_GROUP_TYPE
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
 
 WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
@@ -129,8 +147,10 @@ class fail_after:
 @attr.s(hash=False, eq=False)
 class MemoryListener(trio.abc.Listener):
     closed = attr.ib(default=False)
-    accepted_streams = attr.ib(factory=list)
-    queued_streams = attr.ib(factory=lambda: trio.open_memory_channel(1))
+    accepted_streams: list[
+        tuple[trio.abc.SendChannel[str], trio.abc.ReceiveChannel[str]]
+    ] = attr.ib(factory=list)
+    queued_streams = attr.ib(factory=lambda: trio.open_memory_channel[str](1))
     accept_hook = attr.ib(default=None)
 
     async def connect(self):
@@ -194,7 +214,7 @@ async def test_serve(nursery):
     # The server nursery begins with one task (server.listen).
     assert len(nursery.child_tasks) == 1
     no_clients_nursery_count = len(task.child_nurseries)
-    async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as conn:
+    async with open_websocket(HOST, port, RESOURCE, use_ssl=False):
         # The server nursery has the same number of tasks, but there is now
         # one additional nested nursery.
         assert len(nursery.child_tasks) == 1
@@ -220,7 +240,6 @@ async def test_serve_ssl(nursery):
 
 
 async def test_serve_handler_nursery(nursery):
-    task = current_task()
     async with trio.open_nursery() as handler_nursery:
         serve_with_nursery = partial(serve_websocket, echo_request_handler,
             HOST, 0, None, handler_nursery=handler_nursery)
@@ -228,17 +247,15 @@ async def test_serve_handler_nursery(nursery):
         port = server.port
         # The server nursery begins with one task (server.listen).
         assert len(nursery.child_tasks) == 1
-        no_clients_nursery_count = len(task.child_nurseries)
-        async with open_websocket(HOST, port, RESOURCE, use_ssl=False) as conn:
+        async with open_websocket(HOST, port, RESOURCE, use_ssl=False):
             # The handler nursery should have one task in it
             # (conn._reader_task).
             assert len(handler_nursery.child_tasks) == 1
 
 
-async def test_serve_with_zero_listeners(nursery):
-    task = current_task()
+async def test_serve_with_zero_listeners():
     with pytest.raises(ValueError):
-        server = WebSocketServer(echo_request_handler, [])
+        WebSocketServer(echo_request_handler, [])
 
 
 async def test_serve_non_tcp_listener(nursery):
@@ -290,8 +307,16 @@ async def test_client_open_url(path, expected_path, echo_server):
 
 async def test_client_open_invalid_url(echo_server):
     with pytest.raises(ValueError):
-        async with open_websocket_url('http://foo.com/bar') as conn:
+        async with open_websocket_url('http://foo.com/bar'):
             pass
+
+async def test_client_open_invalid_ssl(echo_server, nursery):
+    with pytest.raises(TypeError, match='`use_ssl` argument must be bool or ssl.SSLContext'):
+        await connect_websocket(nursery, HOST, echo_server.port, RESOURCE, use_ssl=1)
+
+    url = f'ws://{HOST}:{echo_server.port}{RESOURCE}'
+    with pytest.raises(ValueError, match='^SSL context must be None for ws: URL scheme$' ):
+        await connect_websocket_url(nursery, url, ssl_context=ssl.SSLContext(ssl.PROTOCOL_SSLv23))
 
 
 async def test_ascii_encoded_path_is_ok(echo_server):
@@ -359,11 +384,10 @@ async def test_handshake_has_endpoints(nursery):
         assert not request.local.is_ssl
         assert str(request.remote.address) == HOST
         assert not request.remote.is_ssl
-        conn = await request.accept()
+        await request.accept()
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
-    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False
-            ) as client_ws:
+    async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
         pass
 
 
@@ -411,7 +435,7 @@ async def test_handshake_client_headers(nursery):
 async def test_handshake_server_headers(nursery):
     async def handler(request):
         headers = [('X-Test-Header', 'My test header')]
-        server_ws = await request.accept(extra_headers=headers)
+        await request.accept(extra_headers=headers)
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False
@@ -421,22 +445,151 @@ async def test_handshake_server_headers(nursery):
         assert header_value == b'My test header'
 
 
+
+
+@fail_after(5)
+async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
+    """_reader_task._handle_ping_event triggers KeyboardInterrupt.
+    user code also raises exception.
+    Make sure that KI is delivered, and the user exception is in the __cause__ exceptiongroup
+    """
+    async def ki_raising_ping_handler(*args, **kwargs) -> None:
+        raise KeyboardInterrupt
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", ki_raising_ping_handler)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            with trio.fail_after(1) as cs:
+                cs.shield = True
+                await trio.sleep(2)
+
+    e_cause = exc_info.value.__cause__
+    assert isinstance(e_cause, _TRIO_EXC_GROUP_TYPE)
+    assert any(isinstance(e, trio.TooSlowError) for e in e_cause.exceptions)
+
+@fail_after(5)
+async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock):
+    """_reader_task._handle_ping_event triggers ValueError.
+    user code also raises exception.
+    internal exception is in __context__ exceptiongroup and user exc is delivered
+    """
+    internal_error = ValueError()
+    internal_error.__context__ = TypeError()
+    user_error = NameError()
+    user_error_context = KeyError()
+    async def raising_ping_event(*args, **kwargs) -> None:
+        raise internal_error
+
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", raising_ping_event)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(type(user_error)) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            await trio.lowlevel.checkpoint()
+            user_error.__context__ = user_error_context
+            raise user_error
+
+    assert exc_info.value is user_error
+    e_context = exc_info.value.__context__
+    assert isinstance(e_context, BaseExceptionGroup)  # pylint: disable=possibly-used-before-assignment
+    assert internal_error in e_context.exceptions
+    assert user_error_context in e_context.exceptions
+
+@fail_after(5)
+async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock):
+    """Both user code and _reader_task raise Cancellation.
+    Check that open_websocket reraises the one from user code for traceback reasons.
+    """
+
+
+    async def sleeping_ping_event(*args, **kwargs) -> None:
+        await trio.sleep_forever()
+
+    # We monkeypatch WebSocketConnection._handle_ping_event to ensure it will actually
+    # raise Cancelled upon being cancelled. For some reason it doesn't otherwise.
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", sleeping_ping_event)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+    user_cancelled = None
+    user_cancelled_cause = None
+    user_cancelled_context = None
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with trio.move_on_after(2):
+        with pytest.raises(trio.Cancelled) as exc_info:
+            async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+                try:
+                    await trio.sleep_forever()
+                except trio.Cancelled as e:
+                    user_cancelled = e
+                    user_cancelled_cause = e.__cause__
+                    user_cancelled_context = e.__context__
+                    raise
+
+    assert exc_info.value is user_cancelled
+    assert exc_info.value.__cause__ is user_cancelled_cause
+    assert exc_info.value.__context__ is user_cancelled_context
+
+def _trio_default_non_strict_exception_groups() -> bool:
+    assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
+    return int(trio.__version__[2:4]) < 25
+
 @fail_after(1)
-async def test_handshake_exception_before_accept():
+async def test_handshake_exception_before_accept() -> None:
     ''' In #107, a request handler that throws an exception before finishing the
     handshake causes the task to hang. The proper behavior is to raise an
     exception to the nursery as soon as possible. '''
     async def handler(request):
         raise ValueError()
 
-    with pytest.raises(ValueError):
+    # pylint fails to resolve that BaseExceptionGroup will always be available
+    with pytest.raises((BaseExceptionGroup, ValueError)) as exc:  # pylint: disable=possibly-used-before-assignment
         async with trio.open_nursery() as nursery:
             server = await nursery.start(serve_websocket, handler, HOST, 0,
                 None)
             async with open_websocket(HOST, server.port, RESOURCE,
-                    use_ssl=False) as client_ws:
+                    use_ssl=False):
                 pass
 
+    if _trio_default_non_strict_exception_groups():
+        assert isinstance(exc.value, ValueError)
+    else:
+        # there's 4 levels of nurseries opened, leading to 4 nested groups:
+        # 1. this test
+        # 2. WebSocketServer.run
+        # 3. trio.serve_listeners
+        # 4. WebSocketServer._handle_connection
+        assert RaisesGroup(
+            RaisesGroup(
+                RaisesGroup(
+                    RaisesGroup(ValueError)))).matches(exc.value)
+
+
+async def test_user_exception_cause(nursery) -> None:
+    async def handler(request):
+        await request.accept()
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    e_context = TypeError("foo")
+    e_primary = ValueError("bar")
+    e_cause = RuntimeError("zee")
+    with pytest.raises(ValueError) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            try:
+                raise e_context
+            except TypeError:
+                raise e_primary from e_cause
+    e = exc_info.value
+    assert e is e_primary
+    assert e.__cause__ is e_cause
+    assert e.__context__ is e_context
 
 @fail_after(1)
 async def test_reject_handshake(nursery):
@@ -446,8 +599,7 @@ async def test_reject_handshake(nursery):
 
     server = await nursery.start(serve_websocket, handler, HOST, 0, None)
     with pytest.raises(ConnectionRejected) as exc_info:
-        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False,
-                ) as client_ws:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
             pass
     exc = exc_info.value
     assert exc.body == b'My body'
@@ -468,8 +620,7 @@ async def test_reject_handshake_invalid_info_status(nursery):
     port = listeners[0].socket.getsockname()[1]
 
     with pytest.raises(ConnectionRejected) as exc_info:
-        async with open_websocket(HOST, port, RESOURCE, use_ssl=False,
-                ) as client_ws:
+        async with open_websocket(HOST, port, RESOURCE, use_ssl=False):
             pass
     exc = exc_info.value
     assert exc.status_code == 100
@@ -477,7 +628,7 @@ async def test_reject_handshake_invalid_info_status(nursery):
     assert exc.body is None
 
 
-async def test_handshake_protocol_error(nursery, echo_server):
+async def test_handshake_protocol_error(echo_server):
     '''
     If a client connects to a trio-websocket server and tries to speak HTTP
     instead of WebSocket, the server should reject the connection. (If the
@@ -605,7 +756,7 @@ async def test_client_open_timeout(nursery, autojump_clock):
     '''
     async def handler(request):
         await trio.sleep(FORCE_TIMEOUT)
-        server_ws = await request.accept()
+        await request.accept()
         pytest.fail('Should not reach this line.')
 
     server = await nursery.start(
@@ -613,7 +764,7 @@ async def test_client_open_timeout(nursery, autojump_clock):
 
     with pytest.raises(ConnectionTimeout):
         async with open_websocket(HOST, server.port, '/', use_ssl=False,
-                connect_timeout=TIMEOUT) as client_ws:
+                connect_timeout=TIMEOUT):
             pass
 
 
@@ -650,7 +801,7 @@ async def test_client_connect_networking_error():
             connect_websocket_mock:
         connect_websocket_mock.side_effect = OSError()
         with pytest.raises(HandshakeError):
-            async with open_websocket(HOST, 0, '/', use_ssl=False) as client_ws:
+            async with open_websocket(HOST, 0, '/', use_ssl=False):
                 pass
 
 
@@ -673,7 +824,7 @@ async def test_server_open_timeout(autojump_clock):
 
         old_task_count = len(nursery.child_tasks)
         # This stream is not a WebSocket, so it won't send a handshake:
-        stream = await trio.open_tcp_stream(HOST, server.port)
+        await trio.open_tcp_stream(HOST, server.port)
         # Checkpoint so the server's handler task can spawn:
         await trio.sleep(0)
         assert len(nursery.child_tasks) == old_task_count + 1, \
@@ -714,7 +865,7 @@ async def test_server_close_timeout(autojump_clock):
         # Spawn client inside an inner nursery so that we can cancel it's reader
         # so that it won't do a closing handshake.
         async with trio.open_nursery() as inner:
-            ws = await connect_websocket(inner, HOST, server.port, RESOURCE,
+            await connect_websocket(inner, HOST, server.port, RESOURCE,
                 use_ssl=False)
             # Checkpoint so the server can spawn a handler task:
             await trio.sleep(0)
@@ -786,7 +937,7 @@ async def test_server_does_not_close_handshake(nursery):
 
 async def test_server_handler_exit(nursery, autojump_clock):
     async def handler(request):
-        server_ws = await request.accept()
+        await request.accept()
         await trio.sleep(1)
 
     server = await nursery.start(
@@ -1056,3 +1207,16 @@ async def test_remote_close_rude():
     async with trio.open_nursery() as nursery:
         nursery.start_soon(server)
         nursery.start_soon(client)
+
+
+def test_copy_exceptions():
+    # test that exceptions are copy- and pickleable
+    copy.copy(HandshakeError())
+    copy.copy(ConnectionTimeout())
+    copy.copy(DisconnectionTimeout())
+    assert copy.copy(ConnectionClosed("foo")).reason == "foo"
+
+    rej_copy = copy.copy(ConnectionRejected(404, (("a", "b"),), b"c"))
+    assert rej_copy.status_code == 404
+    assert rej_copy.headers == (("a", "b"),)
+    assert rej_copy.body == b"c"

@@ -1,4 +1,5 @@
 # requirements for `make lint/docs/publish`
+mypy
 pylint
 sphinx
 sphinxcontrib-trio

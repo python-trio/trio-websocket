@@ -28,7 +28,6 @@ setup(
         'Intended Audience :: Developers',
         'Topic :: Software Development :: Libraries',
         'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
@@ -37,7 +36,7 @@ setup(
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
     ],
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     keywords='websocket client server trio',
     packages=find_packages(exclude=['docs', 'examples', 'tests']),
     install_requires=[
