@@ -1693,7 +1693,7 @@ class WebSocketServer:
                 listeners.append(repr(listener))
         return listeners
 
-    async def run(
+    async def run(  # type: ignore[misc]
         self,
         *,
         task_status: trio.TaskStatus[WebSocketServer] = trio.TASK_STATUS_IGNORED,

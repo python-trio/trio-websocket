@@ -176,7 +176,7 @@ class MemoryListener(
             trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
         ],
     ] = attr.ib(factory=lambda: trio.open_memory_channel[
-        trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
+        "trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]"
     ](1))
     accept_hook: Callable[[], Awaitable[object]] | None = attr.ib(default=None)
 
