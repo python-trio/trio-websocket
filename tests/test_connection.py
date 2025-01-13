@@ -32,8 +32,11 @@ circumstances
 
 from __future__ import annotations
 
+import copy
 from functools import partial, wraps
+import re
 import ssl
+import sys
 from unittest.mock import patch
 
 import attr
@@ -49,6 +52,13 @@ try:
 except ImportError:
     from trio.hazmat import current_task  # type: ignore # pylint: disable=ungrouped-imports
 
+
+# only available on trio>=0.25, we don't use it when testing lower versions
+try:
+    from trio.testing import RaisesGroup
+except ImportError:
+    pass
+
 from trio_websocket import (
     connect_websocket,
     connect_websocket_url,
@@ -61,13 +71,19 @@ from trio_websocket import (
     open_websocket,
     open_websocket_url,
     serve_websocket,
+    WebSocketConnection,
     WebSocketServer,
     WebSocketRequest,
     wrap_client_stream,
     wrap_server_stream,
 )
 
-WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split(".")))
+from trio_websocket._impl import _TRIO_EXC_GROUP_TYPE
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup  # pylint: disable=redefined-builtin
+
+WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
 HOST = "127.0.0.1"
 RESOURCE = "/resource"
@@ -452,6 +468,103 @@ async def test_handshake_server_headers(nursery):
         assert header_value == b"My test header"
 
 
+
+
+@fail_after(5)
+async def test_open_websocket_internal_ki(nursery, monkeypatch, autojump_clock):
+    """_reader_task._handle_ping_event triggers KeyboardInterrupt.
+    user code also raises exception.
+    Make sure that KI is delivered, and the user exception is in the __cause__ exceptiongroup
+    """
+    async def ki_raising_ping_handler(*args, **kwargs) -> None:
+        raise KeyboardInterrupt
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", ki_raising_ping_handler)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            with trio.fail_after(1) as cs:
+                cs.shield = True
+                await trio.sleep(2)
+
+    e_cause = exc_info.value.__cause__
+    assert isinstance(e_cause, _TRIO_EXC_GROUP_TYPE)
+    assert any(isinstance(e, trio.TooSlowError) for e in e_cause.exceptions)
+
+@fail_after(5)
+async def test_open_websocket_internal_exc(nursery, monkeypatch, autojump_clock):
+    """_reader_task._handle_ping_event triggers ValueError.
+    user code also raises exception.
+    internal exception is in __context__ exceptiongroup and user exc is delivered
+    """
+    internal_error = ValueError()
+    internal_error.__context__ = TypeError()
+    user_error = NameError()
+    user_error_context = KeyError()
+    async def raising_ping_event(*args, **kwargs) -> None:
+        raise internal_error
+
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", raising_ping_event)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with pytest.raises(type(user_error)) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            await trio.lowlevel.checkpoint()
+            user_error.__context__ = user_error_context
+            raise user_error
+
+    assert exc_info.value is user_error
+    e_context = exc_info.value.__context__
+    assert isinstance(e_context, BaseExceptionGroup)  # pylint: disable=possibly-used-before-assignment
+    assert internal_error in e_context.exceptions
+    assert user_error_context in e_context.exceptions
+
+@fail_after(5)
+async def test_open_websocket_cancellations(nursery, monkeypatch, autojump_clock):
+    """Both user code and _reader_task raise Cancellation.
+    Check that open_websocket reraises the one from user code for traceback reasons.
+    """
+
+
+    async def sleeping_ping_event(*args, **kwargs) -> None:
+        await trio.sleep_forever()
+
+    # We monkeypatch WebSocketConnection._handle_ping_event to ensure it will actually
+    # raise Cancelled upon being cancelled. For some reason it doesn't otherwise.
+    monkeypatch.setattr(WebSocketConnection, "_handle_ping_event", sleeping_ping_event)
+    async def handler(request):
+        server_ws = await request.accept()
+        await server_ws.ping(b"a")
+    user_cancelled = None
+    user_cancelled_cause = None
+    user_cancelled_context = None
+
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    with trio.move_on_after(2):
+        with pytest.raises(trio.Cancelled) as exc_info:
+            async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+                try:
+                    await trio.sleep_forever()
+                except trio.Cancelled as e:
+                    user_cancelled = e
+                    user_cancelled_cause = e.__cause__
+                    user_cancelled_context = e.__context__
+                    raise
+
+    assert exc_info.value is user_cancelled
+    assert exc_info.value.__cause__ is user_cancelled_cause
+    assert exc_info.value.__context__ is user_cancelled_context
+
+def _trio_default_non_strict_exception_groups() -> bool:
+    assert re.match(r'^0\.\d\d\.', trio.__version__), "unexpected trio versioning scheme"
+    return int(trio.__version__[2:4]) < 25
+
 @fail_after(1)
 async def test_handshake_exception_before_accept() -> None:
     """In #107, a request handler that throws an exception before finishing the
@@ -461,7 +574,8 @@ async def test_handshake_exception_before_accept() -> None:
     async def handler(request):
         raise ValueError()
 
-    with pytest.raises(ValueError):
+    # pylint fails to resolve that BaseExceptionGroup will always be available
+    with pytest.raises((BaseExceptionGroup, ValueError)) as exc:  # pylint: disable=possibly-used-before-assignment
         async with trio.open_nursery() as nursery:
             server = await nursery.start(serve_websocket, handler, HOST, 0, None)
             async with open_websocket(
@@ -469,6 +583,37 @@ async def test_handshake_exception_before_accept() -> None:
             ) as client_ws:
                 pass
 
+    if _trio_default_non_strict_exception_groups():
+        assert isinstance(exc.value, ValueError)
+    else:
+        # there's 4 levels of nurseries opened, leading to 4 nested groups:
+        # 1. this test
+        # 2. WebSocketServer.run
+        # 3. trio.serve_listeners
+        # 4. WebSocketServer._handle_connection
+        assert RaisesGroup(
+            RaisesGroup(
+                RaisesGroup(
+                    RaisesGroup(ValueError)))).matches(exc.value)
+
+
+async def test_user_exception_cause(nursery) -> None:
+    async def handler(request):
+        await request.accept()
+    server = await nursery.start(serve_websocket, handler, HOST, 0, None)
+    e_context = TypeError("foo")
+    e_primary = ValueError("bar")
+    e_cause = RuntimeError("zee")
+    with pytest.raises(ValueError) as exc_info:
+        async with open_websocket(HOST, server.port, RESOURCE, use_ssl=False):
+            try:
+                raise e_context
+            except TypeError:
+                raise e_primary from e_cause
+    e = exc_info.value
+    assert e is e_primary
+    assert e.__cause__ is e_cause
+    assert e.__context__ is e_context
 
 @fail_after(1)
 async def test_reject_handshake(nursery):
@@ -1151,3 +1296,16 @@ async def test_remote_close_rude():
     async with trio.open_nursery() as nursery:
         nursery.start_soon(server)
         nursery.start_soon(client)
+
+
+def test_copy_exceptions():
+    # test that exceptions are copy- and pickleable
+    copy.copy(HandshakeError())
+    copy.copy(ConnectionTimeout())
+    copy.copy(DisconnectionTimeout())
+    assert copy.copy(ConnectionClosed("foo")).reason == "foo"
+
+    rej_copy = copy.copy(ConnectionRejected(404, (("a", "b"),), b"c"))
+    assert rej_copy.status_code == 404
+    assert rej_copy.headers == (("a", "b"),)
+    assert rej_copy.body == b"c"
