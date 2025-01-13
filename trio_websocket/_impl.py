@@ -87,9 +87,9 @@ class _preserve_current_exception:
             return False
 
         if _IS_TRIO_MULTI_ERROR:  # pragma: no cover
-            filtered_exception = trio.MultiError.filter(
+            filtered_exception = trio.MultiError.filter(  # pylint: disable=no-member
                 _ignore_cancel, value
-            )  # pylint: disable=no-member
+            )
         elif isinstance(
             value, BaseExceptionGroup
         ):  # pylint: disable=possibly-used-before-assignment
