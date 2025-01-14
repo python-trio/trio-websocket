@@ -651,9 +651,7 @@ async def serve_websocket(
             host=host,
             https_compatible=True,
         )
-    listeners: list[trio.SSLListener[trio.SocketStream]] | list[trio.SocketListener] = (
-        await open_tcp_listeners()
-    )
+    listeners = await open_tcp_listeners()
     server = WebSocketServer(
         handler,
         listeners,
