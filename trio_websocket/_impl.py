@@ -1691,7 +1691,11 @@ class WebSocketServer:
                 listeners.append(repr(listener))
         return listeners
 
-    async def run(
+    # Type ignore is because type checker does not think NoReturn is
+    # real for Trio 0.25.1 (current version used in requirements file as
+    # of writing). Not a problem for newer versions however, which is
+    # why we have unused-ignore as well.
+    async def run(  # type: ignore[misc,unused-ignore]
         self,
         *,
         task_status: trio.TaskStatus[WebSocketServer] = trio.TASK_STATUS_IGNORED,
