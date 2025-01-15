@@ -6,7 +6,6 @@ import argparse
 import json
 import logging
 import sys
-from typing import Any
 
 import trio
 from trio_websocket import open_websocket_url, ConnectionClosed

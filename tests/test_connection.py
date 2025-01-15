@@ -93,7 +93,10 @@ if TYPE_CHECKING:
     from typing_extensions import ParamSpec, TypeAlias
     PS = ParamSpec("PS")
 
-    StapledMemoryStream: TypeAlias = trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
+    StapledMemoryStream: TypeAlias = trio.StapledStream[
+        trio.testing.MemorySendStream,
+        trio.testing.MemoryReceiveStream,
+    ]
 
 WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
@@ -617,9 +620,9 @@ async def test_open_websocket_cancellations(
     assert exc_info.value.__context__ is user_cancelled_context
 
 def _trio_default_non_strict_exception_groups() -> bool:
-    version = version("trio")
-    assert re.match(r'^0\.\d\d\.', version), "unexpected trio versioning scheme"
-    return int(version[2:4]) < 25
+    trio_version = version("trio")
+    assert re.match(r'^0\.\d\d\.', trio_version), "unexpected trio versioning scheme"
+    return int(trio_version[2:4]) < 25
 
 @fail_after(1)
 async def test_handshake_exception_before_accept() -> None:
