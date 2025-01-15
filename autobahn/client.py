@@ -26,7 +26,7 @@ async def get_case_count(url: str) -> int:
     return int(case_count)
 
 
-async def get_case_info(url: str, case: str) -> Any:
+async def get_case_info(url: str, case: str) -> object:
     url = f'{url}/getCaseInfo?case={case}'
     async with open_websocket_url(url) as conn:
         return json.loads(await conn.get_message())
@@ -63,7 +63,10 @@ async def run_tests(args: argparse.Namespace) -> None:
         test_cases = list(range(1, case_count + 1))
     exception_cases = []
     for case in test_cases:
-        case_id = (await get_case_info(args.url, case))['id']
+        result = await get_case_info(args.url, case)
+        assert isinstance(result, dict)
+        case_id = result['id']
+        assert isinstance(case_id, int)
         if case_count:
             logger.info("Running test case %s (%d of %d)", case_id, case, case_count)
         else:

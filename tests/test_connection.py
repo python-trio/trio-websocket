@@ -39,6 +39,7 @@ from collections.abc import AsyncGenerator
 from functools import partial, wraps
 from typing import TYPE_CHECKING, TypeVar, cast
 from unittest.mock import Mock, patch
+from importlib.metadata import version
 
 import attr
 import pytest
@@ -89,8 +90,10 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from wsproto.events import Event
 
-    from typing_extensions import ParamSpec
+    from typing_extensions import ParamSpec, TypeAlias
     PS = ParamSpec("PS")
+
+    StapledMemoryStream: TypeAlias = trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
 
 WS_PROTO_VERSION = tuple(map(int, wsproto.__version__.split('.')))
 
@@ -116,6 +119,8 @@ async def echo_server(nursery: trio.Nursery) -> AsyncGenerator[WebSocketServer, 
     serve_fn = partial(serve_websocket, echo_request_handler, HOST, 0,
         ssl_context=None)
     server = await nursery.start(serve_fn)
+    # Cast needed because currently `nursery.start` has typing issues
+    # blocked by https://github.com/python/mypy/pull/17512
     yield cast(WebSocketServer, server)
 
 
@@ -147,37 +152,28 @@ class fail_after:
         self._seconds = seconds
 
     def __call__(self, fn: Callable[PS, Awaitable[T]]) -> Callable[PS, Awaitable[T | None]]:
+        # Type of decorated function contains type `Any`
         @wraps(fn)
-        async def wrapper(*args: PS.args, **kwargs: PS.kwargs) -> T | None:
-            result: T | None = None
+        async def wrapper(  # type: ignore[misc]
+            *args: PS.args,
+            **kwargs: PS.kwargs,
+        ) -> T:
             with trio.move_on_after(self._seconds) as cancel_scope:
-                result = await fn(*args, **kwargs)
+                return await fn(*args, **kwargs)
             if cancel_scope.cancelled_caught:
                 pytest.fail(f'Test runtime exceeded the maximum {self._seconds} seconds')
-            return result
+            raise AssertionError("Should be unreachable")
         return wrapper
 
 
 @attr.s(hash=False, eq=False)
-class MemoryListener(
-    trio.abc.Listener[
-        "trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]"
-    ]
-):
+class MemoryListener(trio.abc.Listener["StapledMemoryStream"]):
     closed: bool = attr.ib(default=False)
-    accepted_streams: list[
-        trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
-    ] = attr.ib(factory=list)
+    accepted_streams: list[StapledMemoryStream] = attr.ib(factory=list)
     queued_streams: tuple[
-        trio.MemorySendChannel[
-            trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
-        ],
-        trio.MemoryReceiveChannel[
-            trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]
-        ],
-    ] = attr.ib(factory=lambda: trio.open_memory_channel[
-        "trio.StapledStream[trio.testing.MemorySendStream, trio.testing.MemoryReceiveStream]"
-    ](1))
+        trio.MemorySendChannel[StapledMemoryStream],
+        trio.MemoryReceiveChannel[StapledMemoryStream],
+    ] = attr.ib(factory=lambda: trio.open_memory_channel["StapledMemoryStream"](1))
     accept_hook: Callable[[], Awaitable[object]] | None = attr.ib(default=None)
 
     async def connect(self) -> trio.StapledStream[
@@ -385,8 +381,11 @@ async def test_ascii_encoded_path_is_ok(echo_server: WebSocketServer) -> None:
         assert conn.path == RESOURCE + '/' + path
 
 
+# Type ignore because @patch contains `Any`
 @patch('trio_websocket._impl.open_websocket')
-def test_client_open_url_options(open_websocket_mock: Mock) -> None:
+def test_client_open_url_options(  # type: ignore[misc]
+    open_websocket_mock: Mock,
+) -> None:
     """open_websocket_url() must pass its options on to open_websocket()"""
     port = 1234
     url = f'ws://{HOST}:{port}{RESOURCE}'
@@ -618,7 +617,7 @@ async def test_open_websocket_cancellations(
     assert exc_info.value.__context__ is user_cancelled_context
 
 def _trio_default_non_strict_exception_groups() -> bool:
-    version = trio.__version__  # type: ignore[attr-defined]
+    version = version("trio")
     assert re.match(r'^0\.\d\d\.', version), "unexpected trio versioning scheme"
     return int(version[2:4]) < 25
 

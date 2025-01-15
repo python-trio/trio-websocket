@@ -35,6 +35,7 @@ setup(
         'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
+        'Typing :: Typed',
     ],
     python_requires=">=3.8",
     keywords='websocket client server trio',

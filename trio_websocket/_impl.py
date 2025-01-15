@@ -12,6 +12,7 @@ import ssl
 import struct
 import urllib.parse
 from typing import Any, List, NoReturn, Optional, Union, TypeVar, TYPE_CHECKING, Generic, cast
+from importlib.metadata import version
 
 import outcome
 import trio
@@ -38,22 +39,21 @@ if sys.version_info < (3, 11):  # pragma: no cover
 
 if TYPE_CHECKING:
     from types import TracebackType
+    from typing_extensions import Final
     from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Coroutine, Sequence
 
-_IS_TRIO_MULTI_ERROR = tuple(
-    map(int, trio.__version__.split(".")[:2])  # type: ignore[attr-defined]
-) < (0, 22)
+_IS_TRIO_MULTI_ERROR: Final = tuple(map(int, version("trio").split(".")[:2])) < (0, 22)
 
 if _IS_TRIO_MULTI_ERROR:
     _TRIO_EXC_GROUP_TYPE = trio.MultiError  # type: ignore[attr-defined] # pylint: disable=no-member
 else:
     _TRIO_EXC_GROUP_TYPE = BaseExceptionGroup  # pylint: disable=possibly-used-before-assignment
 
-CONN_TIMEOUT = 60 # default connect & disconnect timeout, in seconds
-MESSAGE_QUEUE_SIZE = 1
-MAX_MESSAGE_SIZE = 2 ** 20 # 1 MiB
-RECEIVE_BYTES = 4 * 2 ** 10 # 4 KiB
-logger = logging.getLogger('trio-websocket')
+CONN_TIMEOUT: Final = 60 # default connect & disconnect timeout, in seconds
+MESSAGE_QUEUE_SIZE: Final = 1
+MAX_MESSAGE_SIZE: Final = 2 ** 20 # 1 MiB
+RECEIVE_BYTES: Final = 4 * 2 ** 10 # 4 KiB
+logger: Final = logging.getLogger('trio-websocket')
 
 T = TypeVar("T")
 E = TypeVar("E", bound=BaseException)
@@ -770,11 +770,16 @@ class CloseReason:
                f'<code={self.code}, name={self.name}, reason={self.reason}>'
 
 
+NULL: Final = object()
+
+
 class Future(Generic[T]):
     ''' Represents a value that will be available in the future. '''
     def __init__(self) -> None:
         ''' Constructor. '''
-        self._value: T | None = None
+        # We do some type shenanigins
+        # Would do `T | Literal[NULL]` but that's not right apparently.
+        self._value: T = cast(T, NULL)
         self._value_event = trio.Event()
 
     def set_value(self, value: T) -> None:
@@ -793,7 +798,8 @@ class Future(Generic[T]):
         :returns: The value set by ``set_value()``.
         '''
         await self._value_event.wait()
-        return cast(T, self._value)
+        assert self._value is not NULL
+        return self._value
 
 
 class WebSocketRequest:
@@ -1509,6 +1515,9 @@ class WebSocketConnection(trio.abc.AsyncResource):
                         handler = handlers[event_type]
                         logger.debug('%s received event: %s', self,
                             event_type)
+                        # Type checkers don't understand looking up type in handlers.
+                        # If we wanted to fix, best I can figure is we'd need a huge
+                        # if-else or case block for every type individually.
                         await handler(event)  # type: ignore[operator]
                     except KeyError:
                         logger.warning('%s received unknown event type: "%s"', self,
