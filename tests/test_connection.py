@@ -296,11 +296,15 @@ async def test_serve_with_zero_listeners() -> None:
         WebSocketServer(echo_request_handler, [])
 
 
+def memory_listener() -> trio.SocketListener:
+    return MemoryListener()  # type: ignore[return-value]
+
+
 async def test_serve_non_tcp_listener(nursery: trio.Nursery) -> None:
-    listeners = [MemoryListener()]
+    listeners = [memory_listener()]
     server = WebSocketServer(
         echo_request_handler,
-        listeners,  # type: ignore[arg-type]
+        listeners,
     )
     await nursery.start(server.run)
     assert len(server.listeners) == 1
@@ -313,11 +317,11 @@ async def test_serve_non_tcp_listener(nursery: trio.Nursery) -> None:
 
 async def test_serve_multiple_listeners(nursery: trio.Nursery) -> None:
     listener1 = (await trio.open_tcp_listeners(0, host=HOST))[0]
-    listener2 = MemoryListener()
+    listener2 = memory_listener()
     server = WebSocketServer(
         echo_request_handler, [
             listener1,
-            listener2,  # type: ignore[list-item]
+            listener2,
         ]
     )
     await nursery.start(server.run)
