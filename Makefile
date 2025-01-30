@@ -14,7 +14,7 @@ lint:
 	$(PYTHON) -m pylint trio_websocket/ tests/ autobahn/ examples/
 
 typecheck:
-	$(PYTHON) -m mypy --explicit-package-bases trio_websocket tests autobahn examples
+	$(PYTHON) -m mypy
 
 publish:
 	rm -fr build dist .egg trio_websocket.egg-info
