@@ -94,16 +94,14 @@ async def run_tests(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Autobahn client for" " trio-websocket"
-    )
+    parser = argparse.ArgumentParser(description="Autobahn client for trio-websocket")
     parser.add_argument("url", help="WebSocket URL for server")
     # TODO: accept case ID's rather than indices
     parser.add_argument(
         "debug_cases",
         type=int,
         nargs="*",
-        help="Run" " individual test cases with debug logging (optional)",
+        help="Run individual test cases with debug logging (optional)",
     )
     return parser.parse_args()
 

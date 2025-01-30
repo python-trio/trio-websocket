@@ -187,7 +187,9 @@ class MemoryListener(trio.abc.Listener["StapledMemoryStream"]):
     ] = attr.ib(factory=lambda: trio.open_memory_channel["StapledMemoryStream"](1))
     accept_hook: Callable[[], Awaitable[object]] | None = attr.ib(default=None)
 
-    async def connect(self) -> trio.StapledStream[
+    async def connect(
+        self,
+    ) -> trio.StapledStream[
         trio.testing.MemorySendStream,
         trio.testing.MemoryReceiveStream,
     ]:
@@ -196,7 +198,9 @@ class MemoryListener(trio.abc.Listener["StapledMemoryStream"]):
         await self.queued_streams[0].send(server)
         return client
 
-    async def accept(self) -> trio.StapledStream[
+    async def accept(
+        self,
+    ) -> trio.StapledStream[
         trio.testing.MemorySendStream,
         trio.testing.MemoryReceiveStream,
     ]:
@@ -878,7 +882,10 @@ async def test_wrap_client_stream(nursery: trio.Nursery) -> None:
     await nursery.start(server.run)
     stream = await listener.connect()
     conn = await wrap_client_stream(
-        nursery, stream, HOST, RESOURCE  # type: ignore[arg-type]
+        nursery,
+        stream,  # type: ignore[arg-type]
+        HOST,
+        RESOURCE,
     )
     async with conn:
         assert not conn.closed
@@ -1427,7 +1434,10 @@ async def test_remote_close_rude() -> None:
 
     async def client() -> None:
         client_conn = await wrap_client_stream(
-            nursery, client_stream, HOST, RESOURCE  # type: ignore[arg-type]
+            nursery,
+            client_stream,  # type: ignore[arg-type]
+            HOST,
+            RESOURCE,
         )
         assert not client_conn.closed
         await client_conn.send_message("Hello from client!")

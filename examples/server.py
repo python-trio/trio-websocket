@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ssl", action="store_true", help="Use SSL")
     parser.add_argument(
         "host",
-        help="Host interface to bind. If omitted, " "then bind all interfaces.",
+        help="Host interface to bind. If omitted, then bind all interfaces.",
         nargs="?",
     )
     parser.add_argument("port", type=int, help="Port to bind.")
@@ -45,8 +45,7 @@ async def main(args: argparse.Namespace) -> None:
             ssl_context.load_cert_chain(here / "fake.server.pem")
         except FileNotFoundError:
             logging.error(
-                'Did not find file "fake.server.pem". You need to run'
-                " generate-cert.py"
+                'Did not find file "fake.server.pem". You need to run generate-cert.py'
             )
     else:
         ssl_context = None

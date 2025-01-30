@@ -52,9 +52,7 @@ async def handler(request: WebSocketRequest) -> None:
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Autobahn server for" " trio-websocket"
-    )
+    parser = argparse.ArgumentParser(description="Autobahn server for trio-websocket")
     parser.add_argument(
         "-d", "--debug", action="store_true", help="WebSocket URL for server"
     )
