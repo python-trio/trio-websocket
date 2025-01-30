@@ -11,6 +11,7 @@ test:
 	$(PYTHON) -m pytest --cov=trio_websocket --cov-report=term-missing --no-cov-on-fail
 
 lint:
+	$(PYTHON) -m black trio_websocket/ tests/ autobahn/ examples/
 	$(PYTHON) -m pylint trio_websocket/ tests/ autobahn/ examples/
 
 typecheck:
