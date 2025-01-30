@@ -630,8 +630,9 @@ async def test_open_websocket_internal_exc(
     assert exc_info.value is user_error
     e_context = exc_info.value.__context__
     assert isinstance(
-        e_context, BaseExceptionGroup
-    )  # pylint: disable=possibly-used-before-assignment
+        e_context,
+        BaseExceptionGroup,  # pylint: disable=possibly-used-before-assignment
+    )
     assert internal_error in e_context.exceptions
     assert user_error_context in e_context.exceptions
 
