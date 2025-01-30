@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("client")
 
 
-async def get_case_count(url):
+async def get_case_count(url: str) -> int:
     url = url + "/getCaseCount"
     async with open_websocket_url(url) as conn:
         case_count = await conn.get_message()
@@ -26,13 +26,13 @@ async def get_case_count(url):
     return int(case_count)
 
 
-async def get_case_info(url, case):
+async def get_case_info(url: str, case: str) -> object:
     url = f"{url}/getCaseInfo?case={case}"
     async with open_websocket_url(url) as conn:
         return json.loads(await conn.get_message())
 
 
-async def run_case(url, case):
+async def run_case(url: str, case: str) -> None:
     url = f"{url}/runCase?case={case}&agent={AGENT}"
     try:
         async with open_websocket_url(url, max_message_size=MAX_MESSAGE_SIZE) as conn:
@@ -43,7 +43,7 @@ async def run_case(url, case):
         pass
 
 
-async def update_reports(url):
+async def update_reports(url: str) -> None:
     url = f"{url}/updateReports?agent={AGENT}"
     async with open_websocket_url(url) as conn:
         # This command runs as soon as we connect to it, so we don't need to
@@ -51,7 +51,7 @@ async def update_reports(url):
         pass
 
 
-async def run_tests(args):
+async def run_tests(args: argparse.Namespace) -> None:
     logger = logging.getLogger("trio-websocket")
     if args.debug_cases:
         # Don't fetch case count when debugging a subset of test cases. It adds
@@ -63,7 +63,10 @@ async def run_tests(args):
         test_cases = list(range(1, case_count + 1))
     exception_cases = []
     for case in test_cases:
-        case_id = (await get_case_info(args.url, case))["id"]
+        result = await get_case_info(args.url, case)
+        assert isinstance(result, dict)
+        case_id = result["id"]
+        assert isinstance(case_id, int)
         if case_count:
             logger.info("Running test case %s (%d of %d)", case_id, case, case_count)
         else:
@@ -89,7 +92,7 @@ async def run_tests(args):
         sys.exit(1)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Autobahn client for" " trio-websocket"

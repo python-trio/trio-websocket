@@ -24,6 +24,7 @@ setup(
     author_email="mehaase@gmail.com",
     classifiers=[
         # See https://pypi.org/classifiers/
+<<<<<<< HEAD
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "Topic :: Software Development :: Libraries",
@@ -35,10 +36,45 @@ setup(
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: Implementation :: PyPy",
+||||||| e7706f4
+        'Development Status :: 3 - Alpha',
+        'Intended Audience :: Developers',
+        'Topic :: Software Development :: Libraries',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: Implementation :: CPython',
+        'Programming Language :: Python :: Implementation :: PyPy',
+=======
+        'Development Status :: 3 - Alpha',
+        'Intended Audience :: Developers',
+        'Topic :: Software Development :: Libraries',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: Implementation :: CPython',
+        'Programming Language :: Python :: Implementation :: PyPy',
+        'Typing :: Typed',
+>>>>>>> root/master
     ],
     python_requires=">=3.8",
+<<<<<<< HEAD
     keywords="websocket client server trio",
     packages=find_packages(exclude=["docs", "examples", "tests"]),
+||||||| e7706f4
+    keywords='websocket client server trio',
+    packages=find_packages(exclude=['docs', 'examples', 'tests']),
+=======
+    keywords='websocket client server trio',
+    packages=find_packages(exclude=['docs', 'examples', 'tests']),
+    package_data={"trio-websocket": ["py.typed"]},
+>>>>>>> root/master
     install_requires=[
         'exceptiongroup; python_version<"3.11"',
         "trio>=0.11",

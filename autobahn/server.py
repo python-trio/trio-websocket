@@ -24,7 +24,7 @@ logger.setLevel(logging.INFO)
 connection_count = 0
 
 
-async def main():
+async def main() -> None:
     """Main entry point."""
     logger.info("Starting websocket server on ws://%s:%d", BIND_IP, BIND_PORT)
     await serve_websocket(
@@ -32,7 +32,7 @@ async def main():
     )
 
 
-async def handler(request: WebSocketRequest):
+async def handler(request: WebSocketRequest) -> None:
     """Reverse incoming websocket messages and send them back."""
     global connection_count  # pylint: disable=global-statement
     connection_count += 1
@@ -50,7 +50,7 @@ async def handler(request: WebSocketRequest):
             )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Autobahn server for" " trio-websocket"

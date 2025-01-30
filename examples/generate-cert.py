@@ -4,7 +4,7 @@ import sys
 import trustme
 
 
-def main():
+def main() -> None:
     here = pathlib.Path(__file__).parent
     ca_path = here / "fake.ca.pem"
     server_path = here / "fake.server.pem"
