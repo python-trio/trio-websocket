@@ -11,16 +11,23 @@ import pathlib
 import ssl
 import sys
 import urllib.parse
+from typing import NoReturn
 
 import trio
-from trio_websocket import open_websocket_url, ConnectionClosed, HandshakeError
+from trio_websocket import (
+    open_websocket_url,
+    ConnectionClosed,
+    HandshakeError,
+    WebSocketConnection,
+    CloseReason,
+)
 
 
 logging.basicConfig(level=logging.DEBUG)
 here = pathlib.Path(__file__).parent
 
 
-def commands():
+def commands() -> None:
     ''' Print the supported commands. '''
     print('Commands: ')
     print('send <MESSAGE>   -> send message')
@@ -29,7 +36,7 @@ def commands():
     print()
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     ''' Parse command line arguments. '''
     parser = argparse.ArgumentParser(description='Example trio-websocket client')
     parser.add_argument('--heartbeat', action='store_true',
@@ -38,7 +45,7 @@ def parse_args():
     return parser.parse_args()
 
 
-async def main(args):
+async def main(args: argparse.Namespace) -> bool:
     ''' Main entry point, returning False in the case of logged error. '''
     if urllib.parse.urlsplit(args.url).scheme == 'wss':
         # Configure SSL context to handle our self-signed certificate. Most
@@ -59,9 +66,10 @@ async def main(args):
     except HandshakeError as e:
         logging.error('Connection attempt failed: %s', e)
         return False
+    return True
 
 
-async def handle_connection(ws, use_heartbeat):
+async def handle_connection(ws: WebSocketConnection, use_heartbeat: bool) -> None:
     ''' Handle the connection. '''
     logging.debug('Connected!')
     try:
@@ -71,11 +79,12 @@ async def handle_connection(ws, use_heartbeat):
             nursery.start_soon(get_commands, ws)
             nursery.start_soon(get_messages, ws)
     except ConnectionClosed as cc:
+        assert isinstance(cc.reason, CloseReason)
         reason = '<no reason>' if cc.reason.reason is None else f'"{cc.reason.reason}"'
         print(f'Closed: {cc.reason.code}/{cc.reason.name} {reason}')
 
 
-async def heartbeat(ws, timeout, interval):
+async def heartbeat(ws: WebSocketConnection, timeout: float, interval: float) -> NoReturn:
     '''
     Send periodic pings on WebSocket ``ws``.
 
@@ -99,11 +108,10 @@ async def heartbeat(ws, timeout, interval):
         await trio.sleep(interval)
 
 
-async def get_commands(ws):
+async def get_commands(ws: WebSocketConnection) -> None:
     ''' In a loop: get a command from the user and execute it. '''
     while True:
-        cmd = await trio.to_thread.run_sync(input, 'cmd> ',
-            cancellable=True)
+        cmd = await trio.to_thread.run_sync(input, 'cmd> ')
         if cmd.startswith('ping'):
             payload = cmd[5:].encode('utf8') or None
             await ws.ping(payload)
@@ -123,11 +131,11 @@ async def get_commands(ws):
         await trio.sleep(0.25)
 
 
-async def get_messages(ws):
+async def get_messages(ws: WebSocketConnection) -> None:
     ''' In a loop: get a WebSocket message and print it out. '''
     while True:
         message = await ws.get_message()
-        print(f'message: {message}')
+        print(f'message: {message!r}')
 
 
 if __name__ == '__main__':
