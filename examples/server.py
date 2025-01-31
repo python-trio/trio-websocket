@@ -14,7 +14,7 @@ import pathlib
 import ssl
 
 import trio
-from trio_websocket import serve_websocket, ConnectionClosed
+from trio_websocket import serve_websocket, ConnectionClosed, WebSocketRequest
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -22,7 +22,7 @@ logger = logging.getLogger()
 here = pathlib.Path(__file__).parent
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     ''' Parse command line arguments. '''
     parser = argparse.ArgumentParser(description='Example trio-websocket client')
     parser.add_argument('--ssl', action='store_true', help='Use SSL')
@@ -32,7 +32,7 @@ def parse_args():
     return parser.parse_args()
 
 
-async def main(args):
+async def main(args: argparse.Namespace) -> None:
     ''' Main entry point. '''
     logging.info('Starting websocket server…')
     if args.ssl:
@@ -48,7 +48,7 @@ async def main(args):
     await serve_websocket(handler, host, args.port, ssl_context)
 
 
-async def handler(request):
+async def handler(request: WebSocketRequest) -> None:
     ''' Reverse incoming websocket messages and send them back. '''
     logging.info('Handler starting on path "%s"', request.path)
     ws = await request.accept()
