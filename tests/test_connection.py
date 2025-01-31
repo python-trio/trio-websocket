@@ -401,6 +401,7 @@ def test_client_open_url_options(  # type: ignore[misc]
         'extra_headers': [(b'X-Test-Header', b'My test header')],
         'message_queue_size': 9,
         'max_message_size': 333,
+        'receive_buffer_size': 999,
         'connect_timeout': 36,
         'disconnect_timeout': 37,
     }
