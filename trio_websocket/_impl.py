@@ -117,7 +117,7 @@ async def open_websocket(
     extra_headers: Optional[list[tuple[bytes,bytes]]] = None,
     message_queue_size: int = MESSAGE_QUEUE_SIZE,
     max_message_size: int = MAX_MESSAGE_SIZE,
-    receive_buffer_size: int = RECEIVE_BYTES,
+    receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
     connect_timeout: float = CONN_TIMEOUT,
     disconnect_timeout: float = CONN_TIMEOUT
 ) -> AsyncGenerator[WebSocketConnection, None]:
@@ -316,7 +316,7 @@ async def connect_websocket(
     extra_headers: list[tuple[bytes, bytes]] | None = None,
     message_queue_size: int = MESSAGE_QUEUE_SIZE,
     max_message_size: int = MAX_MESSAGE_SIZE,
-    receive_buffer_size: int = RECEIVE_BYTES,
+    receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
 ) -> WebSocketConnection:
     '''
     Return an open WebSocket client connection to a host.
@@ -394,7 +394,7 @@ def open_websocket_url(
     max_message_size: int = MAX_MESSAGE_SIZE,
     connect_timeout: float = CONN_TIMEOUT,
     disconnect_timeout: float = CONN_TIMEOUT,
-    receive_buffer_size: int = RECEIVE_BYTES,
+    receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
 ) -> AbstractAsyncContextManager[WebSocketConnection]:
     '''
     Open a WebSocket client connection to a URL.
@@ -447,7 +447,7 @@ async def connect_websocket_url(
     extra_headers: list[tuple[bytes, bytes]] | None = None,
     message_queue_size: int = MESSAGE_QUEUE_SIZE,
     max_message_size: int = MAX_MESSAGE_SIZE,
-    receive_buffer_size: int = RECEIVE_BYTES,
+    receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
 ) -> WebSocketConnection:
     '''
     Return an open WebSocket client connection to a URL.
@@ -540,7 +540,7 @@ async def wrap_client_stream(
     extra_headers: list[tuple[bytes, bytes]] | None = None,
     message_queue_size: int = MESSAGE_QUEUE_SIZE,
     max_message_size: int = MAX_MESSAGE_SIZE,
-    receive_buffer_size: int = RECEIVE_BYTES,
+    receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
 ) -> WebSocketConnection:
     '''
     Wrap an arbitrary stream in a WebSocket connection.
@@ -587,7 +587,7 @@ async def wrap_server_stream(
     stream: trio.abc.Stream,
     message_queue_size: int = MESSAGE_QUEUE_SIZE,
     max_message_size: int = MAX_MESSAGE_SIZE,
-    receive_buffer_size: int = RECEIVE_BYTES,
+    receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
 ) -> WebSocketRequest:
     '''
     Wrap an arbitrary stream in a server-side WebSocket.
@@ -629,7 +629,7 @@ async def serve_websocket(
     handler_nursery: trio.Nursery | None = None,
     message_queue_size: int = MESSAGE_QUEUE_SIZE,
     max_message_size: int = MAX_MESSAGE_SIZE,
-    receive_buffer_size: int = RECEIVE_BYTES,
+    receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
     connect_timeout: float = CONN_TIMEOUT,
     disconnect_timeout: float = CONN_TIMEOUT,
     task_status: trio.TaskStatus[WebSocketServer] = trio.TASK_STATUS_IGNORED,
@@ -994,7 +994,7 @@ class WebSocketConnection(trio.abc.AsyncResource):
         client_extra_headers: list[tuple[bytes, bytes]] | None = None,
         message_queue_size: int = MESSAGE_QUEUE_SIZE,
         max_message_size: int = MAX_MESSAGE_SIZE,
-        receive_buffer_size=RECEIVE_BYTES,
+        receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
     ) -> None:
         '''
         Constructor.
@@ -1660,7 +1660,7 @@ class WebSocketServer:
         handler_nursery: trio.Nursery | None = None,
         message_queue_size: int = MESSAGE_QUEUE_SIZE,
         max_message_size: int = MAX_MESSAGE_SIZE,
-        receive_buffer_size: int = RECEIVE_BYTES,
+        receive_buffer_size: Union[None, int] = RECEIVE_BYTES,
         connect_timeout: float = CONN_TIMEOUT,
         disconnect_timeout: float = CONN_TIMEOUT,
     ) -> None:
