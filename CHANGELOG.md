@@ -1,5 +1,15 @@
 # Release history
 
+## trio-websocket 0.12.0 (2025-02-16)
+### Fixed
+- fix loss of context/cause on ExceptionGroup exceptions
+  ([#191](https://github.com/python-trio/trio-websocket/issues/191))
+### Changed
+- support trio strict_exception_groups=True
+- expand type annotations
+- add ability to specify receive buffer size, including `None` to let trio choose
+- drop support for Python 3.7
+
 ## trio-websocket 0.11.1 (2023-09-26)
 ### Changed
 - remove exceptiongroup dependency for Python >= 3.11
