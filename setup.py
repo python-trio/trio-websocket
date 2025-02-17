@@ -44,6 +44,7 @@ setup(
     package_data={"trio-websocket": ["py.typed"]},
     install_requires=[
         'exceptiongroup; python_version<"3.11"',
+        'outcome>=1.2.0',
         'trio>=0.11',
         'wsproto>=0.14',
     ],
