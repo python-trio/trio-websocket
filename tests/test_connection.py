@@ -378,7 +378,8 @@ async def test_client_open_invalid_ssl(
 
     url = f'ws://{HOST}:{echo_server.port}{RESOURCE}'
     with pytest.raises(ValueError, match='^SSL context must be None for ws: URL scheme$' ):
-        await connect_websocket_url(nursery, url, ssl_context=ssl.SSLContext(ssl.PROTOCOL_SSLv23))
+        await connect_websocket_url(
+            nursery, url, ssl_context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT))
 
 
 async def test_ascii_encoded_path_is_ok(echo_server: WebSocketServer) -> None:
