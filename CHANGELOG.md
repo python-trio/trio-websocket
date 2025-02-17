@@ -1,5 +1,10 @@
 # Release history
 
+## trio-websocket 0.12.1 (2025-02-17)
+### Fixed
+- fix omitted direct dependency on outcome
+  ([#196](https://github.com/python-trio/trio-websocket/issues/196))
+
 ## trio-websocket 0.12.0 (2025-02-16)
 ### Fixed
 - fix loss of context/cause on ExceptionGroup exceptions
