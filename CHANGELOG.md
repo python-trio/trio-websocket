@@ -1,5 +1,10 @@
 # Release history
 
+## trio-websocket 0.12.2 (2025-02-24)
+### Fixed
+- fix incorrect port when using a `wss://` URL without supplying an explicit
+  SSL context
+
 ## trio-websocket 0.12.1 (2025-02-17)
 ### Fixed
 - fix omitted direct dependency on outcome
