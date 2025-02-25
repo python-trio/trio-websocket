@@ -518,7 +518,7 @@ def _url_to_host(
     if parts.port is not None:
         port = parts.port
     else:
-        port = 443 if ssl_context else 80
+        port = 443 if return_ssl_context else 80
     path_qs = parts.path
     # RFC 7230, Section 5.3.1:
     # If the target URI's path component is empty, the client MUST
