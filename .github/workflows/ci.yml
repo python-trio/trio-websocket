@@ -64,6 +64,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           cache-dependency-path: 'requirements-dev.txt'
+      - run: pip install cryptography  # TODO(cclauss): Fix requirements for PyPy v3.11
+        if: matrix.python-version == 'pypy-3.11'
       - run: pip install . -r requirements-dev.txt
       - run: make test
 
@@ -73,7 +75,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.15']
+        python-version: ['3.14']
     steps:
       - uses: actions/checkout@v5
       - name: Setup Python ${{ matrix.python-version }}
