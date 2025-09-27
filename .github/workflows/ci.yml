@@ -12,14 +12,15 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
 
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v3
+      - uses: actions/checkout@v5
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
           cache: 'pip'
           cache-dependency-path: 'requirements-dev-full.txt'
       - run: pip install . -r requirements-dev-full.txt
@@ -35,9 +36,9 @@ jobs:
         python-version: ['3.8']
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
       - name: Setup Python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -53,12 +54,12 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['pypy-3.9','pypy-3.10']
+        python-version: ['pypy-3.10','pypy-3.11']
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
       - name: Setup Python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -72,12 +73,13 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.14-dev']
+        python-version: ['3.15']
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v3
+      - uses: actions/checkout@v5
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
       - run: pip install . -r requirements-dev.in
       - run: make test
