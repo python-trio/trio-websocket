@@ -1495,7 +1495,8 @@ class WebSocketConnection(trio.abc.AsyncResource):
         :param wsproto.events.Ping event:
         '''
         logger.debug('%s ping %r', self, event.payload)
-        await self._send(event.response())
+        if self._wsproto.state != ConnectionState.LOCAL_CLOSING:
+            await self._send(event.response())
 
     async def _handle_pong_event(self, event: wsproto.events.Pong) -> None:
         '''
