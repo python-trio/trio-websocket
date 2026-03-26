@@ -32,6 +32,7 @@ circumstances
 from __future__ import annotations
 
 import copy
+import datetime
 import re
 import ssl
 import sys
@@ -274,6 +275,108 @@ async def test_serve_ssl(nursery: trio.Nursery) -> None:
         assert conn.local.is_ssl
         assert isinstance(conn.remote, Endpoint)
         assert conn.remote.is_ssl
+
+
+async def test_serve_ssl_wrong_ca(nursery: trio.Nursery) -> None:
+    server_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    client_context = ssl.create_default_context()
+    ca = trustme.CA()
+    other_ca = trustme.CA()
+    other_ca.configure_trust(client_context)
+    cert = ca.issue_server_cert(HOST)
+    cert.configure_cert(server_context)
+
+    server = await nursery.start(serve_websocket, echo_request_handler, HOST, 0,
+        server_context)
+    assert isinstance(server, WebSocketServer)
+    port = server.port
+    with trio.fail_after(0.1):
+        with pytest.raises(HandshakeError) as excinfo:
+            async with open_websocket(HOST, port, RESOURCE, use_ssl=client_context
+                    ) as conn:
+                assert not conn.closed
+                assert isinstance(conn.local, Endpoint)
+                assert conn.local.is_ssl
+                assert isinstance(conn.remote, Endpoint)
+                assert conn.remote.is_ssl
+        assert isinstance(excinfo.value.__cause__, ssl.SSLError)
+        assert excinfo.value.__cause__.reason == "CERTIFICATE_VERIFY_FAILED"
+
+
+async def test_ssl_client_cert(nursery: trio.Nursery) -> None:
+
+    ca = trustme.CA()
+
+    server_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    cert = ca.issue_server_cert(HOST)
+    cert.configure_cert(server_context)
+    server_context.verify_mode = ssl.CERT_REQUIRED
+    ca.configure_trust(server_context)
+
+    # Setup a valid client certificate.
+    good_client_context = ssl.create_default_context()
+    ca.configure_trust(good_client_context)
+    good_client_cert = ca.issue_cert("user@example.org")
+    good_client_cert.configure_cert(good_client_context)
+
+    # Setup an expired client certificate.
+    bad_client_context = ssl.create_default_context()
+    ca.configure_trust(bad_client_context)
+    bad_client_cert = ca.issue_cert(
+        "user@example.org", not_after=datetime.datetime.now(datetime.UTC))
+    bad_client_cert.configure_cert(bad_client_context)
+
+    # Use the timeout because the old SSL code made the client hang.
+    with trio.fail_after(0.5):
+        async with trio.open_nursery() as nurs:
+
+            server = await nurs.start(
+                serve_websocket, echo_request_handler, HOST, 0, server_context)
+            assert isinstance(server, WebSocketServer)
+            port = server.port
+
+            # Test with the valid certificate.
+            async with open_websocket(
+                    HOST, port, RESOURCE, use_ssl=good_client_context
+            ) as conn:
+                assert not conn.closed
+                assert isinstance(conn.local, Endpoint)
+                assert conn.local.is_ssl
+                assert isinstance(conn.remote, Endpoint)
+                assert conn.remote.is_ssl
+                await conn.send_message('foo')
+                assert await conn.get_message() == 'foo'
+
+            # Test with the expired certificate.
+            with pytest.raises(HandshakeError) as excinfo:
+                async with open_websocket(
+                        HOST, port, RESOURCE, use_ssl=bad_client_context
+                ) as conn:
+                    assert not conn.closed
+                    assert isinstance(conn.local, Endpoint)
+                    assert conn.local.is_ssl
+                    assert isinstance(conn.remote, Endpoint)
+                    assert conn.remote.is_ssl
+            assert isinstance(excinfo.value.__cause__, ssl.SSLError)
+            assert excinfo.value.__cause__.reason == "SSLV3_ALERT_CERTIFICATE_EXPIRED"
+
+            # Test with the valid certificate again. If this does work now,
+            # this means that the expired certificate crashed the server.
+            try:
+                async with open_websocket(
+                        HOST, port, RESOURCE, use_ssl=good_client_context
+                ) as conn:
+                    assert not conn.closed
+                    assert isinstance(conn.local, Endpoint)
+                    assert conn.local.is_ssl
+                    assert isinstance(conn.remote, Endpoint)
+                    assert conn.remote.is_ssl
+                    await conn.send_message('foo')
+                    assert await conn.get_message() == 'foo'
+            except:
+                raise RuntimeError("The server crashed in the first subtest") from None
+
+            nurs.cancel_scope.cancel()
 
 
 async def test_serve_handler_nursery(nursery: trio.Nursery) -> None:

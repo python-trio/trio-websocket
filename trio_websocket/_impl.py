@@ -1570,8 +1570,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
                 # Get network data.
                 try:
                     data = await self._stream.receive_some(self._receive_buffer_size)
-                except (trio.BrokenResourceError, trio.ClosedResourceError):
+                except (trio.BrokenResourceError, trio.ClosedResourceError) as exc:
                     await self._abort_web_socket()
+                    # Wrap SSL errors into a HandshakeError.
+                    if isinstance(exc.__cause__, ssl.SSLError):
+                        raise HandshakeError() from exc.__cause__
                     break
                 if len(data) == 0:
                     logger.debug('%s received zero bytes (connection closed)',
@@ -1608,8 +1611,11 @@ class WebSocketConnection(trio.abc.AsyncResource):
             logger.debug('%s sending %d bytes', self, len(data))
             try:
                 await self._stream.send_all(data)
-            except (trio.BrokenResourceError, trio.ClosedResourceError):
+            except (trio.BrokenResourceError, trio.ClosedResourceError) as exc:
                 await self._abort_web_socket()
+                # Wrap SSL errors into a HandshakeError.
+                if isinstance(exc.__cause__, ssl.SSLError):
+                    raise HandshakeError() from exc.__cause__
                 assert self._close_reason is not None
                 raise ConnectionClosed(self._close_reason) from None
 
@@ -1783,13 +1789,26 @@ class WebSocketServer:
         :param stream:
         :type stream: trio.abc.Stream
         '''
+
+        # Filter out "HandshakeError"s caused by "SSLError"s as we don't want a
+        # connection error to crash the server.
+        async def _reader_task():
+            try:
+                await connection._reader_task()
+            except* HandshakeError as excs:
+                non_ssl_errs = excs.subgroup(
+                    lambda e: not isinstance(e, ExceptionGroup)
+                    and not isinstance(e.__cause__, ssl.SSLError))
+                if non_ssl_errs:
+                    raise non_ssl_errs
+
         async with trio.open_nursery() as nursery:
             connection = WebSocketConnection(stream,
                 WSConnection(ConnectionType.SERVER),
                 message_queue_size=self._message_queue_size,
                 max_message_size=self._max_message_size,
                 receive_buffer_size=self._receive_buffer_size)
-            nursery.start_soon(connection._reader_task)
+            nursery.start_soon(_reader_task)
             with trio.move_on_after(self._connect_timeout) as connect_scope:
                 request = await connection._get_request()
             if connect_scope.cancelled_caught:

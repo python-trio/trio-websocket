@@ -1,5 +1,10 @@
 # Release history
 
+## trio-websocket x.y.z
+### Fixed
+- fix the client hanging upon a certificate issue
+  ([#199](https://github.com/python-trio/trio-websocket/issues/199))
+
 ## trio-websocket 0.12.2 (2025-02-24)
 ### Fixed
 - fix incorrect port when using a `wss://` URL without supplying an explicit
